@@ -193,7 +193,7 @@ class VoiceController:
                 if active_b != "pollinations" or self.llm.model in POLLINATIONS_MODELS
                 else POLLINATIONS_MODELS[0]
             ).split("/")[-1]
-            self.status_line = f"Mochi sedang berpikir ({model_short})..."
+            self.status_line = f"Mochi menjawab ({model_short})..."
 
         def _on_partial(partial_text: str, partial_mood: str | None) -> None:
             if cancel_ev.is_set():
@@ -617,6 +617,7 @@ def run_tui(
     tts_enabled: bool = True,
     standalone: bool = False,
     backend: str = "auto",
+    reasoning_effort: str = "none",
     start_talking: bool = False,
 ) -> int:
     """Launch the interactive terminal UI."""
@@ -640,7 +641,13 @@ def run_tui(
             speed_override=speed_override,
         )
         engine = MochiEngine(mood=mood, auto_cycle=auto_cycle)
-        llm = OpenCodeClient(model=model, lang=voice_preset.lang, standalone=standalone, backend=backend)
+        llm = OpenCodeClient(
+            model=model,
+            lang=voice_preset.lang,
+            standalone=standalone,
+            backend=backend,
+            reasoning_effort=reasoning_effort,
+        )
         controller = VoiceController(
             engine=engine,
             llm=llm,

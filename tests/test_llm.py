@@ -114,17 +114,22 @@ def test_auto_backend_falls_back_to_keyless_pollinations(monkeypatch):
     monkeypatch.setattr("dasai_mochi.llm.shutil.which", lambda _name: None)
     monkeypatch.delenv("OPENCODE_API_KEY", raising=False)
 
-    monkeypatch.setattr(
-        "dasai_mochi.llm.requests.post",
-        lambda *_a, **_kw: SimpleNamespace(
+    captured_payloads = []
+
+    def fake_post(_url, json=None, **_kw):
+        captured_payloads.append(json)
+        return SimpleNamespace(
             status_code=200,
             text="[happy] Siap, kubuka browsernya! [action:open_app:browser]",
-        ),
-    )
+        )
+
+    monkeypatch.setattr("dasai_mochi.llm.requests.post", fake_post)
 
     client = OpenCodeClient(backend="auto")
     assert client.active_backend() == "pollinations"
+    assert client.reasoning_effort == "none"
     reply = client.ask("Buka browser dong")
+    assert captured_payloads[0]["reasoning_effort"] == "none"
     assert reply.mood == "happy"
     assert reply.text == "Siap, kubuka browsernya!"
     assert reply.spoken_text == "Siap, kubuka browsernya!"

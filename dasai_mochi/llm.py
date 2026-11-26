@@ -269,6 +269,7 @@ class OpenCodeClient:
     timeout: float = 60.0
     opencode_bin: str = "opencode"
     backend: str = "auto"
+    reasoning_effort: str = "none"
     session_id: str | None = field(default=None)
     history: list[dict[str, str]] = field(default_factory=list)
 
@@ -346,6 +347,10 @@ class OpenCodeClient:
         if not resolved_bin:
             raise OpenCodeError(f"Binary '{self.opencode_bin}' tidak ditemukan di PATH.")
 
+        cli_model = self.model
+        if self.reasoning_effort == "none" and "#" not in cli_model and cli_model == "opencode/beam-free":
+            cli_model = "opencode/beam-free#low"
+
         prompt = message if self.session_id else f"{build_persona_prompt(self.lang)}\n\nUser: {message}"
         cmd = [
             resolved_bin,
@@ -353,7 +358,7 @@ class OpenCodeClient:
             "--format",
             "json",
             "--model",
-            self.model,
+            cli_model,
             "--archived",
         ]
         if self.standalone:
@@ -478,6 +483,7 @@ class OpenCodeClient:
         payload = {
             "model": model_id,
             "messages": self._build_messages(message),
+            "reasoning_effort": self.reasoning_effort,
             "stream": False,
         }
         try:
@@ -509,6 +515,7 @@ class OpenCodeClient:
         payload = {
             "messages": self._build_messages(message),
             "model": model_name,
+            "reasoning_effort": self.reasoning_effort,
             "private": True,
             "stream": bool(on_partial is not None),
         }

@@ -132,6 +132,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="AI backend: auto (opencode if installed, else keyless HTTP API), opencode, zen, or pollinations",
     )
     parser.add_argument(
+        "--reasoning",
+        choices=("none", "low", "medium", "high"),
+        default="none",
+        help="Reasoning effort level for LLM responses (default: none)",
+    )
+    parser.add_argument(
         "--voice",
         default=DEFAULT_VOICE_KEY,
         help=f"TTS voice preset or Edge TTS voice ID (default: {DEFAULT_VOICE_KEY})",
@@ -263,6 +269,7 @@ def main(argv: list[str] | None = None) -> int:
             lang=voice.lang,
             standalone=args.standalone,
             backend=args.backend,
+            reasoning_effort=args.reasoning,
         )
         try:
             reply = client.ask(args.ask)
@@ -315,5 +322,6 @@ def main(argv: list[str] | None = None) -> int:
         tts_enabled=not args.no_tts,
         standalone=args.standalone,
         backend=args.backend,
+        reasoning_effort=args.reasoning,
         start_talking=args.talk,
     )
