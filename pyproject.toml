@@ -1,0 +1,44 @@
+[build-system]
+requires = ["hatchling>=1.25.0"]
+build-backend = "hatchling.build"
+
+[project]
+name = "dasai-mochi"
+version = "0.1.0"
+description = "Terminal Dasai Mochi digital companion with animated OLED expressions, voice chat, and OpenCode free LLM integration"
+readme = "README.md"
+license = "Apache-2.0"
+requires-python = ">=3.10"
+keywords = ["terminal", "tui", "curses", "dasai-mochi", "tts", "voice-assistant", "opencode"]
+classifiers = [
+    "Environment :: Console :: Curses",
+    "License :: OSI Approved :: Apache Software License",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+]
+dependencies = [
+    "edge-tts>=7.0.0",
+    "gTTS>=2.5.0",
+    "requests>=2.31.0",
+    "SpeechRecognition>=3.10.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+]
+
+[project.scripts]
+dasai-mochi = "dasai_mochi.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["dasai_mochi"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
