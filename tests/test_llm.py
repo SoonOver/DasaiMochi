@@ -70,7 +70,7 @@ def test_opencode_client_ask_tracks_session(monkeypatch):
     monkeypatch.setattr("dasai_mochi.llm.shutil.which", lambda _name: "/usr/bin/opencode")
     monkeypatch.setattr("dasai_mochi.llm.subprocess.run", fake_run)
 
-    client = OpenCodeClient(model=DEFAULT_FREE_MODEL, lang="id-ID")
+    client = OpenCodeClient(model="opencode/beam-free", lang="id-ID", backend="opencode")
     r1 = client.ask("Halo Mochi")
     assert r1.mood == "love"
     assert r1.text == "Hai juga!"
@@ -101,38 +101,51 @@ def test_opencode_client_streaming_partial_callbacks(monkeypatch):
     monkeypatch.setattr("dasai_mochi.llm.subprocess.Popen", lambda *a, **kw: FakeProc())
 
     partials = []
-    client = OpenCodeClient(model=DEFAULT_FREE_MODEL, backend="opencode")
+    client = OpenCodeClient(model="opencode/beam-free", backend="opencode")
     reply = client.ask("Hai", on_partial=lambda txt, mood: partials.append((txt, mood)))
     assert reply.mood == "happy"
     assert reply.text == "Halo dunia!"
     assert partials == [("Halo", "happy"), ("Halo dunia!", "happy")]
 
 
-def test_auto_backend_falls_back_to_keyless_pollinations(monkeypatch):
+def test_auto_backend_uses_kilo_1m_context_keyless(monkeypatch):
     from types import SimpleNamespace
 
     monkeypatch.setattr("dasai_mochi.llm.shutil.which", lambda _name: None)
-    monkeypatch.delenv("OPENCODE_API_KEY", raising=False)
+    for var in ("GEMINI_API_KEY", "GROQ_API_KEY", "OPENCODE_API_KEY"):
+        monkeypatch.delenv(var, raising=False)
 
     captured_payloads = []
 
-    def fake_post(_url, json=None, **_kw):
-        captured_payloads.append(json)
+    def fake_post(url, json=None, **_kw):
+        captured_payloads.append((url, json))
         return SimpleNamespace(
             status_code=200,
-            text="[happy] Siap, kubuka browsernya! [action:open_app:browser]",
+            encoding="utf-8",
+            text='{"choices":[{"message":{"content":"[happy] Siap, kubuka browsernya! [action:open_app:browser]"}}]}',
+            json=lambda: {"choices": [{"message": {"content": "[happy] Siap, kubuka browsernya! [action:open_app:browser]"}}]},
         )
 
     monkeypatch.setattr("dasai_mochi.llm.requests.post", fake_post)
 
     client = OpenCodeClient(backend="auto")
-    assert client.active_backend() == "pollinations"
+    assert client.active_backend() == "kilo"
     assert client.reasoning_effort == "none"
     reply = client.ask("Buka browser dong")
-    assert captured_payloads[0]["reasoning_effort"] == "none"
+    assert "api.kilo.ai" in captured_payloads[0][0]
+    assert captured_payloads[0][1]["model"] == "reflection/beam-free"
+    assert captured_payloads[0][1]["reasoning_effort"] == "none"
     assert reply.mood == "happy"
     assert reply.text == "Siap, kubuka browsernya!"
     assert reply.spoken_text == "Siap, kubuka browsernya!"
     assert len(reply.actions) == 1
     assert reply.actions[0].kind == "open_app"
     assert reply.actions[0].arg == "browser"
+
+
+def test_optional_gemini_and_groq_keys(monkeypatch):
+    monkeypatch.setenv("GEMINI_API_KEY", "fake-gem")
+    assert OpenCodeClient(backend="auto").active_backend() == "gemini"
+    monkeypatch.delenv("GEMINI_API_KEY")
+    monkeypatch.setenv("GROQ_API_KEY", "fake-groq")
+    assert OpenCodeClient(backend="auto").active_backend() == "groq"

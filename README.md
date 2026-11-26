@@ -6,7 +6,7 @@
 
 - **10 Ekspresi OLED Animatif** (`idle`, `happy`, `love`, `sleepy`, `cool`, `surprised`, `angry`, `vibe`, `turbo`, `glitch`) dengan kedipan alami, lirikan mata, dan reaksi *boop* (`Space`).
 - **Tampilan Minimalis**: Menu dan legenda tersembunyi secara default — tekan `h` kapan saja untuk membuka menu lengkap.
-- **Tanpa Wajib Download OpenCode**: Jika `opencode` CLI tidak terpasang, Mochi otomatis memakai API AI gratis tanpa API key (`Pollinations` / `OpenCode Zen HTTP`), dan tetap memakai `opencode/beam-free` bila `opencode` tersedia.
+- **Tanpa Wajib Download OpenCode**: Default memakai **Kilo Gateway gratis tanpa API key** dengan context window besar **1M+ token** (`reflection/beam-free` 1,04M token default, `nvidia/nemotron-3.5-lightning:free` 1M token super cepat, `kilo-auto/free`), serta otomatis mendukung `GEMINI_API_KEY` (1M token), `GROQ_API_KEY`, `OPENCODE_API_KEY`, atau `opencode` CLI (`--backend opencode`).
 - **Kendali Komputer Lintas OS (Linux & Windows 10/11)**: Minta Mochi membuka aplikasi (`browser`, `calculator`, `notepad`, `vscode`, `files`), mencari di Google/YouTube, membuka folder, mengatur volume & media playback, mengambil screenshot, membaca CPU/RAM/baterai/jam, mengunci layar, menyalin clipboard, atau memasang timer.
 - **TTS Ringan & Cepat + Subtitle Streaming**:
   - Default **`tiktok-id`** (`id_001` dengan *formant shift* chibi via `mpv` atau Windows Media `winmm`)

@@ -1,4 +1,4 @@
-"""LLM client supporting built-in keyless HTTP API, OpenCode Zen HTTP, and OpenCode CLI."""
+"""LLM client supporting Kilo 1M-context keyless API, optional Gemini/Groq/Zen keys, Pollinations, and OpenCode CLI."""
 
 from __future__ import annotations
 
@@ -15,6 +15,14 @@ import requests
 from .animations import MOOD_NAMES
 from .control import ActionSpec, extract_actions_and_text
 
+
+KILO_MODELS: tuple[str, ...] = (
+    "reflection/beam-free",                  # 1,048,576 ctx, reliable Indonesian & actions
+    "nvidia/nemotron-3.5-lightning:free",    # 1,000,000 ctx, ~0.8s ultra-fast
+    "nvidia/nemotron-3.5-super-vl:free",     # 1,000,000 ctx
+    "inclusionai/ling-3.2-flash:free",       # 1,048,576 ctx
+    "kilo-auto/free",                        #   256,000 ctx, auto router
+)
 
 FREE_MODELS: tuple[str, ...] = (
     "opencode/beam-free",
@@ -33,10 +41,23 @@ POLLINATIONS_MODELS: tuple[str, ...] = (
     "openai",
 )
 
-DEFAULT_FREE_MODEL = FREE_MODELS[0]
+GEMINI_MODELS: tuple[str, ...] = (
+    "gemini-2.5-flash",
+    "gemini-2.5-flash-lite",
+)
 
+GROQ_MODELS: tuple[str, ...] = (
+    "llama-3.3-70b-versatile",
+    "llama-3.1-8b-instant",
+)
+
+DEFAULT_FREE_MODEL = KILO_MODELS[0]
+
+KILO_URL = "https://api.kilo.ai/api/gateway/chat/completions"
 POLLINATIONS_URL = "https://text.pollinations.ai/"
 OPENCODE_ZEN_URL = "https://opencode.ai/zen/v1/chat/completions"
+GEMINI_OPENAI_URL = "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
+GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
 
 _MOOD_ALIASES: dict[str, str] = {
     "excited": "happy",
@@ -217,14 +238,35 @@ def parse_opencode_json_output(raw_stdout: str) -> tuple[str, str | None]:
     raise OpenCodeError("OpenCode tidak mengembalikan teks jawaban.")
 
 
+def models_for_backend(backend: str) -> tuple[str, ...]:
+    b = backend.strip().lower()
+    if b == "gemini":
+        return GEMINI_MODELS
+    if b == "groq":
+        return GROQ_MODELS
+    if b == "pollinations":
+        return POLLINATIONS_MODELS
+    if b in ("opencode", "zen"):
+        return FREE_MODELS
+    return KILO_MODELS
+
+
 def discover_free_models(opencode_bin: str = "opencode", backend: str = "auto") -> tuple[str, ...]:
     """List free models for the active backend without requiring opencode CLI."""
-    if backend == "pollinations":
-        return POLLINATIONS_MODELS
+    b = backend.strip().lower()
+    if b == "auto":
+        if os.environ.get("GEMINI_API_KEY"):
+            return GEMINI_MODELS
+        if os.environ.get("GROQ_API_KEY"):
+            return GROQ_MODELS
+        if os.environ.get("OPENCODE_API_KEY"):
+            return FREE_MODELS
+        return KILO_MODELS
+    if b != "opencode":
+        return models_for_backend(b)
+
     resolved = shutil.which(opencode_bin)
     if not resolved:
-        if backend == "auto" and not os.environ.get("OPENCODE_API_KEY"):
-            return POLLINATIONS_MODELS
         return FREE_MODELS
 
     try:
@@ -261,12 +303,12 @@ def discover_free_models(opencode_bin: str = "opencode", backend: str = "auto") 
 
 @dataclass
 class OpenCodeClient:
-    """Stateful conversational client supporting OpenCode CLI, Zen HTTP, and keyless Pollinations API."""
+    """Stateful conversational client supporting Kilo 1M-ctx free API, Gemini/Groq/Zen, Pollinations, and OpenCode CLI."""
 
     model: str = DEFAULT_FREE_MODEL
     lang: str = "id-ID"
     standalone: bool = False
-    timeout: float = 60.0
+    timeout: float = 20.0
     opencode_bin: str = "opencode"
     backend: str = "auto"
     reasoning_effort: str = "none"
@@ -284,16 +326,18 @@ class OpenCodeClient:
     def active_backend(self) -> str:
         choice = self.backend.strip().lower()
         if choice == "auto":
-            if shutil.which(self.opencode_bin):
-                return "opencode"
+            if os.environ.get("GEMINI_API_KEY"):
+                return "gemini"
+            if os.environ.get("GROQ_API_KEY"):
+                return "groq"
             if os.environ.get("OPENCODE_API_KEY"):
                 return "zen"
-            return "pollinations"
+            return "kilo"
         if choice == "http":
-            return "zen" if os.environ.get("OPENCODE_API_KEY") else "pollinations"
-        if choice in ("opencode", "zen", "pollinations"):
+            return "kilo"
+        if choice in ("kilo", "opencode", "zen", "pollinations", "gemini", "groq"):
             return choice
-        return "pollinations"
+        return "kilo"
 
     def ask(
         self,
@@ -307,21 +351,49 @@ class OpenCodeClient:
         backend = self.active_backend()
         used_model = self.model
         if backend == "opencode":
-            raw_text, sid = self._ask_opencode_cli(message, on_partial)
+            if used_model not in FREE_MODELS and not used_model.startswith("opencode/"):
+                used_model = FREE_MODELS[0]
+            raw_text, sid = self._ask_opencode_cli(message, on_partial, model_override=used_model)
             if sid:
                 self.session_id = sid
+        elif backend == "gemini":
+            used_model = used_model if used_model in GEMINI_MODELS else GEMINI_MODELS[0]
+            raw_text = self._ask_openai_http(
+                GEMINI_OPENAI_URL,
+                used_model,
+                message,
+                on_partial,
+                api_key=os.environ.get("GEMINI_API_KEY", ""),
+                include_reasoning_effort=False,
+                label="Gemini API",
+            )
+        elif backend == "groq":
+            used_model = used_model if used_model in GROQ_MODELS else GROQ_MODELS[0]
+            raw_text = self._ask_openai_http(
+                GROQ_URL,
+                used_model,
+                message,
+                on_partial,
+                api_key=os.environ.get("GROQ_API_KEY", ""),
+                include_reasoning_effort=False,
+                label="Groq API",
+            )
         elif backend == "zen":
-            try:
-                raw_text = self._ask_zen_http(message, on_partial)
-            except OpenCodeError:
-                if self.backend.strip().lower() in ("auto", "http") and not os.environ.get("OPENCODE_API_KEY"):
-                    raw_text = self._ask_pollinations_http(message, on_partial)
-                    used_model = "openai-fast"
-                else:
-                    raise
-        else:
+            zen_model = used_model.split("/", 1)[-1] if used_model.startswith("opencode/") else used_model
+            raw_text = self._ask_openai_http(
+                OPENCODE_ZEN_URL,
+                zen_model,
+                message,
+                on_partial,
+                api_key=os.environ.get("OPENCODE_API_KEY", "public"),
+                include_reasoning_effort=True,
+                label="OpenCode Zen",
+            )
+        elif backend == "pollinations":
+            used_model = used_model if used_model in POLLINATIONS_MODELS else POLLINATIONS_MODELS[0]
             raw_text = self._ask_pollinations_http(message, on_partial)
-            used_model = self.model if self.model in POLLINATIONS_MODELS else POLLINATIONS_MODELS[0]
+        else:
+            raw_text, used_model = self._ask_kilo_with_fallback(message, on_partial)
 
         actions, _ = extract_actions_and_text(raw_text)
         mood, display_text = extract_mood_and_text(raw_text)
@@ -342,12 +414,13 @@ class OpenCodeClient:
         self,
         message: str,
         on_partial: Callable[[str, str | None], None] | None,
+        model_override: str | None = None,
     ) -> tuple[str, str | None]:
         resolved_bin = shutil.which(self.opencode_bin)
         if not resolved_bin:
             raise OpenCodeError(f"Binary '{self.opencode_bin}' tidak ditemukan di PATH.")
 
-        cli_model = self.model
+        cli_model = model_override or self.model
         if self.reasoning_effort == "none" and "#" not in cli_model and cli_model == "opencode/beam-free":
             cli_model = "opencode/beam-free#low"
 
@@ -459,78 +532,56 @@ class OpenCodeClient:
 
     def _build_messages(self, message: str) -> list[dict[str, str]]:
         msgs: list[dict[str, str]] = [{"role": "system", "content": build_persona_prompt(self.lang)}]
-        msgs.extend(self.history[-16:])
+        msgs.extend(self.history[-80:])
         msgs.append({"role": "user", "content": message})
         return msgs
 
     def _record_history(self, user_message: str, reply_text: str) -> None:
         self.history.append({"role": "user", "content": user_message})
         self.history.append({"role": "assistant", "content": reply_text})
-        if len(self.history) > 20:
-            self.history = self.history[-20:]
+        if len(self.history) > 80:
+            self.history = self.history[-80:]
 
-    def _ask_zen_http(
+    def _ask_openai_http(
         self,
+        url: str,
+        model_id: str,
         message: str,
         on_partial: Callable[[str, str | None], None] | None,
+        *,
+        api_key: str = "",
+        include_reasoning_effort: bool = True,
+        label: str = "HTTP AI",
+        req_timeout: float | None = None,
     ) -> str:
-        api_key = os.environ.get("OPENCODE_API_KEY", "public")
-        model_id = self.model.split("/", 1)[-1] if "/" in self.model else self.model
-        headers = {
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {api_key}",
-        }
-        payload = {
+        headers: dict[str, str] = {"Content-Type": "application/json"}
+        if api_key:
+            headers["Authorization"] = f"Bearer {api_key}"
+
+        payload: dict[str, object] = {
             "model": model_id,
             "messages": self._build_messages(message),
-            "reasoning_effort": self.reasoning_effort,
-            "stream": False,
-        }
-        try:
-            resp = requests.post(OPENCODE_ZEN_URL, json=payload, headers=headers, timeout=self.timeout)
-        except requests.RequestException as exc:
-            raise OpenCodeError(f"Gagal menghubungi OpenCode Zen API: {exc}") from exc
-
-        if resp.status_code != 200:
-            raise OpenCodeError(f"OpenCode Zen HTTP {resp.status_code}: {resp.text[:160]}")
-        data = resp.json()
-        choices = data.get("choices") or []
-        content = (choices[0].get("message", {}).get("content") if choices else None) or ""
-        content = str(content).strip()
-        if not content:
-            raise OpenCodeError("OpenCode Zen tidak mengembalikan teks jawaban.")
-        if on_partial is not None:
-            mood, partial_display = extract_mood_and_text(content)
-            if partial_display:
-                on_partial(partial_display, mood)
-        self._record_history(message, content)
-        return content
-
-    def _ask_pollinations_http(
-        self,
-        message: str,
-        on_partial: Callable[[str, str | None], None] | None,
-    ) -> str:
-        model_name = self.model if self.model in POLLINATIONS_MODELS else POLLINATIONS_MODELS[0]
-        payload = {
-            "messages": self._build_messages(message),
-            "model": model_name,
-            "reasoning_effort": self.reasoning_effort,
-            "private": True,
             "stream": bool(on_partial is not None),
         }
+        if include_reasoning_effort:
+            payload["reasoning_effort"] = self.reasoning_effort
+
+        effective_timeout = req_timeout if req_timeout is not None else self.timeout
+
         try:
             resp = requests.post(
-                POLLINATIONS_URL,
+                url,
                 json=payload,
+                headers=headers,
                 stream=bool(on_partial is not None),
-                timeout=self.timeout,
+                timeout=effective_timeout,
             )
         except requests.RequestException as exc:
-            raise OpenCodeError(f"Gagal menghubungi API AI gratis: {exc}") from exc
+            raise OpenCodeError(f"Gagal menghubungi {label}: {exc}") from exc
 
+        resp.encoding = "utf-8"
         if resp.status_code != 200:
-            raise OpenCodeError(f"API AI HTTP {resp.status_code}: {resp.text[:160]}")
+            raise OpenCodeError(f"{label} HTTP {resp.status_code}: {resp.text[:160]}")
 
         if on_partial is not None:
             chunks: list[str] = []
@@ -557,33 +608,84 @@ class OpenCodeClient:
                         mood, partial_display = extract_mood_and_text("".join(chunks))
                         if partial_display:
                             on_partial(partial_display, mood)
-                elif not chunks:
-                    chunks.append(line)
-
             joined = "".join(chunks).strip()
             if joined:
                 self._record_history(message, joined)
                 return joined
 
-            # Retry non-streaming once if SSE yielded only reasoning or empty chunks
+            # Retry non-streaming once if stream yielded no content tokens
             payload["stream"] = False
-            resp = requests.post(POLLINATIONS_URL, json=payload, timeout=self.timeout)
+            resp = requests.post(url, json=payload, headers=headers, timeout=effective_timeout)
+            resp.encoding = "utf-8"
             if resp.status_code != 200:
-                raise OpenCodeError(f"API AI HTTP {resp.status_code}: {resp.text[:160]}")
+                raise OpenCodeError(f"{label} HTTP {resp.status_code}: {resp.text[:160]}")
 
         text = resp.text.strip()
         if text.startswith("{"):
-            try:
-                data = resp.json()
-                choices = data.get("choices") or []
-                if choices:
-                    text = str(choices[0].get("message", {}).get("content") or "").strip()
-            except Exception:
-                pass
+            data = resp.json()
+            choices = data.get("choices") or []
+            text = str((choices[0].get("message", {}).get("content") if choices else None) or "").strip()
         if not text:
-            raise OpenCodeError("API AI tidak mengembalikan teks jawaban.")
+            raise OpenCodeError(f"{label} tidak mengembalikan teks jawaban.")
+        if on_partial is not None:
+            mood, partial_display = extract_mood_and_text(text)
+            if partial_display:
+                on_partial(partial_display, mood)
         self._record_history(message, text)
         return text
+
+    def _ask_kilo_with_fallback(
+        self,
+        message: str,
+        on_partial: Callable[[str, str | None], None] | None,
+    ) -> tuple[str, str]:
+        preferred = self.model if self.model in KILO_MODELS or ":" in self.model or "/" in self.model else KILO_MODELS[0]
+        if preferred.startswith("opencode/"):
+            preferred = KILO_MODELS[0]
+
+        candidates = [preferred]
+        for fb in ("reflection/beam-free", "nvidia/nemotron-3.5-lightning:free", "kilo-auto/free"):
+            if fb not in candidates:
+                candidates.append(fb)
+
+        last_err: OpenCodeError | None = None
+        for model_id in candidates:
+            try:
+                txt = self._ask_openai_http(
+                    KILO_URL,
+                    model_id,
+                    message,
+                    on_partial,
+                    include_reasoning_effort=(model_id != "kilo-auto/free"),
+                    label="Kilo Free AI",
+                    req_timeout=min(self.timeout, 15.0),
+                )
+                return txt, model_id
+            except OpenCodeError as exc:
+                last_err = exc
+
+        if self.backend.strip().lower() in ("auto", "http"):
+            try:
+                return self._ask_pollinations_http(message, on_partial), POLLINATIONS_MODELS[0]
+            except OpenCodeError:
+                pass
+        assert last_err is not None
+        raise last_err
+
+    def _ask_pollinations_http(
+        self,
+        message: str,
+        on_partial: Callable[[str, str | None], None] | None,
+    ) -> str:
+        model_name = self.model if self.model in POLLINATIONS_MODELS else POLLINATIONS_MODELS[0]
+        return self._ask_openai_http(
+            POLLINATIONS_URL,
+            model_name,
+            message,
+            on_partial,
+            include_reasoning_effort=True,
+            label="Pollinations AI",
+        )
 
 
 LLMClient = OpenCodeClient

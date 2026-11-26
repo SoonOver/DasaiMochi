@@ -123,13 +123,13 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--model",
         default=DEFAULT_FREE_MODEL,
-        help=f"AI model ID (default: {DEFAULT_FREE_MODEL} / openai-fast when keyless HTTP)",
+        help=f"AI model ID (default: {DEFAULT_FREE_MODEL}, 1M context keyless free)",
     )
     parser.add_argument(
         "--backend",
-        choices=("auto", "opencode", "zen", "pollinations", "http"),
+        choices=("auto", "kilo", "opencode", "zen", "pollinations", "gemini", "groq", "http"),
         default="auto",
-        help="AI backend: auto (opencode if installed, else keyless HTTP API), opencode, zen, or pollinations",
+        help="AI backend: auto (Kilo 1M-ctx free, or Gemini/Groq/Zen if API key set), kilo, opencode, zen, pollinations",
     )
     parser.add_argument(
         "--reasoning",
@@ -243,7 +243,7 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.list_models:
         for model in discover_free_models(backend=args.backend):
-            marker = " (default)" if model in (DEFAULT_FREE_MODEL, "openai-fast") else ""
+            marker = " (default)" if model in (DEFAULT_FREE_MODEL, "gemini-2.5-flash", "llama-3.3-70b-versatile", "openai-fast", "opencode/beam-free") else ""
             print(f"{model}{marker}")
         return 0
 

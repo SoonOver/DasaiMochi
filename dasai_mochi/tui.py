@@ -24,7 +24,15 @@ from .audio import (
 )
 from .control import execute_action
 from .framebuffer import Framebuffer, build_bezel
-from .llm import DEFAULT_FREE_MODEL, FREE_MODELS, POLLINATIONS_MODELS, OpenCodeClient, OpenCodeError, discover_free_models
+from .llm import (
+    DEFAULT_FREE_MODEL,
+    FREE_MODELS,
+    KILO_MODELS,
+    OpenCodeClient,
+    OpenCodeError,
+    discover_free_models,
+    models_for_backend,
+)
 from .themes import Theme, get_theme, next_theme
 
 
@@ -95,7 +103,7 @@ class VoiceController:
     llm: OpenCodeClient
     voice: VoicePreset
     tts_enabled: bool = True
-    models: tuple[str, ...] = FREE_MODELS
+    models: tuple[str, ...] = KILO_MODELS
 
     lock: threading.Lock = field(default_factory=threading.Lock)
     voice_state: str = "none"
@@ -155,12 +163,12 @@ class VoiceController:
 
     def cycle_model(self) -> str:
         with self.lock:
-            fallback = POLLINATIONS_MODELS if self.llm.active_backend() == "pollinations" else FREE_MODELS
-            models = self.models or fallback
+            backend = self.llm.active_backend()
+            models = self.models or models_for_backend(backend)
             idx = models.index(self.llm.model) if self.llm.model in models else -1
             nxt = models[(idx + 1) % len(models)]
             self.llm.set_model(nxt)
-            self.status_line = f"Model ({self.llm.active_backend()}): {nxt} (sesi baru)"
+            self.status_line = f"Model ({backend}): {nxt} (sesi baru)"
             self.is_error = False
             return nxt
 
@@ -188,11 +196,9 @@ class VoiceController:
             self.last_mochi = ""
             self.is_error = False
             active_b = self.llm.active_backend()
-            model_short = (
-                self.llm.model
-                if active_b != "pollinations" or self.llm.model in POLLINATIONS_MODELS
-                else POLLINATIONS_MODELS[0]
-            ).split("/")[-1]
+            allowed = models_for_backend(active_b)
+            shown_model = self.llm.model if (self.llm.model in allowed or ":" in self.llm.model or "/" in self.llm.model) else allowed[0]
+            model_short = shown_model.split("/")[-1]
             self.status_line = f"Mochi menjawab ({model_short})..."
 
         def _on_partial(partial_text: str, partial_mood: str | None) -> None:
