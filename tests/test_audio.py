@@ -119,10 +119,19 @@ def test_pcm16_rms_and_wav_writer(tmp_path):
         assert wf.getnframes() == 100
 
 
-def test_detect_recorder_commands_runs():
-    cmds = detect_recorder_commands()
-    assert isinstance(cmds, list)
-    assert len(cmds) >= 1
+def test_detect_recorder_commands_runs(monkeypatch):
+    host_cmds = detect_recorder_commands()
+    assert isinstance(host_cmds, list)
+    assert all(isinstance(name, str) and isinstance(cmd, list) and cmd for name, cmd in host_cmds)
+
+    monkeypatch.setattr(
+        "dasai_mochi.audio.shutil.which",
+        lambda name: "/usr/bin/arecord" if name == "arecord" else None,
+    )
+    assert [name for name, _cmd in detect_recorder_commands()] == ["arecord"]
+
+    monkeypatch.setattr("dasai_mochi.audio.shutil.which", lambda _name: None)
+    assert detect_recorder_commands() == []
 
 
 def test_voice_animation_states_render():
