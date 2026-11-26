@@ -38,7 +38,7 @@ def test_sysinfo_and_timer_and_volume_mocked(monkeypatch):
     assert "CPU" in res_sys.message
 
     calls = []
-    monkeypatch.setattr("dasai_mochi.control.os.name", "posix")
+    monkeypatch.setattr("dasai_mochi.control._is_windows", lambda: False)
     monkeypatch.setattr(
         "dasai_mochi.control.shutil.which",
         lambda name: "/usr/bin/wpctl" if name == "wpctl" else None,
@@ -60,7 +60,7 @@ def test_sysinfo_and_timer_and_volume_mocked(monkeypatch):
 
 def test_brightness_hotkey_clipboard_and_windows_screenshot_env(monkeypatch, tmp_path):
     calls = []
-    monkeypatch.setattr("dasai_mochi.control.os.name", "posix")
+    monkeypatch.setattr("dasai_mochi.control._is_windows", lambda: False)
     monkeypatch.setattr(
         "dasai_mochi.control.shutil.which",
         lambda name: f"/usr/bin/{name}" if name in ("brightnessctl", "xdotool", "wl-paste") else None,
@@ -91,17 +91,17 @@ def test_brightness_hotkey_clipboard_and_windows_screenshot_env(monkeypatch, tmp
 
     # Windows screenshot uses MOCHI_SHOT env var (safe for quotes in path)
     win_calls = []
-    monkeypatch.setattr("dasai_mochi.control.os.name", "nt")
+    monkeypatch.setattr("dasai_mochi.control._is_windows", lambda: True)
     monkeypatch.setattr("dasai_mochi.control.Path.home", lambda: tmp_path)
 
     def fake_win_shot(cmd, env=None, **_kw):
-        win_calls.append((cmd, env))
-        (tmp_path / Path_from_env(env["MOCHI_SHOT"])).write_bytes(b"PNG")
-        return SimpleNamespace(returncode=0)
-
-    def Path_from_env(p):
         from pathlib import Path
-        return Path(p).name
+
+        win_calls.append((cmd, env))
+        shot_path = Path(env["MOCHI_SHOT"])
+        shot_path.parent.mkdir(parents=True, exist_ok=True)
+        shot_path.write_bytes(b"PNG")
+        return SimpleNamespace(returncode=0)
 
     monkeypatch.setattr("dasai_mochi.control.subprocess.run", fake_win_shot)
     res_shot = execute_action(ActionSpec("screenshot"))

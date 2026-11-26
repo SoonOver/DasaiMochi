@@ -73,7 +73,7 @@ def test_windows_audio_dispatch_mocked(monkeypatch, tmp_path):
     import dasai_mochi.audio as audio_mod
 
     called = []
-    monkeypatch.setattr(audio_mod.os, "name", "nt")
+    monkeypatch.setattr(audio_mod, "_is_windows", lambda: True)
     monkeypatch.setattr(audio_mod.shutil, "which", lambda _name: None)
     monkeypatch.setattr(
         audio_mod,

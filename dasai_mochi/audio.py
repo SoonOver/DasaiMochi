@@ -27,6 +27,11 @@ VOICEVOX_QUEST_URL = "https://api.tts.quest/v3/voicevox/synthesis"
 _MCI_COUNTER = itertools.count(1)
 
 
+def _is_windows() -> bool:
+    """Return True when running on native Windows."""
+    return os.name == "nt"
+
+
 def _next_mci_alias(prefix: str) -> str:
     return f"{prefix}_{os.getpid()}_{next(_MCI_COUNTER)}"
 
@@ -360,7 +365,7 @@ def record_mic_to_wav(
     min_speech_seconds: float = 0.3,
 ) -> float:
     """Record audio from the default microphone until silence or `stop_event`."""
-    if os.name == "nt":
+    if _is_windows():
         last_win_err = ""
         try:
             return _record_with_sounddevice(
@@ -796,7 +801,7 @@ def _play_audio_file(
         cmd = _build_mpv_cmd(mp3_path, speed=speed, stream=False)
     elif shutil.which("ffplay"):
         cmd = ["ffplay", "-nodisp", "-autoexit", "-loglevel", "quiet", mp3_path]
-    elif os.name == "nt":
+    elif _is_windows():
         _play_audio_winmm(
             mp3_path,
             display_text=display_text,

@@ -18,6 +18,11 @@ _ACTION_TAG_RE = re.compile(r"\[\s*action\s*:\s*([a-zA-Z0-9_-]+)(?:\s*:\s*([^\]]
 _SAFE_APP_TOKEN_RE = re.compile(r"^[a-zA-Z0-9._ -]{1,48}$")
 
 
+def _is_windows() -> bool:
+    """Return True when running on native Windows."""
+    return os.name == "nt"
+
+
 @dataclass(frozen=True)
 class ActionSpec:
     kind: str
@@ -110,7 +115,7 @@ def _launch_detached(cmd: list[str]) -> None:
         "stdout": subprocess.DEVNULL,
         "stderr": subprocess.DEVNULL,
     }
-    if os.name == "nt":
+    if _is_windows():
         creationflags = getattr(subprocess, "DETACHED_PROCESS", 0) | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
         kwargs["creationflags"] = creationflags
     else:
@@ -119,7 +124,7 @@ def _launch_detached(cmd: list[str]) -> None:
 
 
 def _open_path_with_os(path: Path) -> None:
-    if os.name == "nt":
+    if _is_windows():
         os.startfile(str(path))  # type: ignore[attr-defined]
         return
     opener = shutil.which("xdg-open")
@@ -133,7 +138,7 @@ def _open_app(name: str) -> ActionResult:
     if not key or not _SAFE_APP_TOKEN_RE.match(key):
         return ActionResult(False, "open_app", f"Nama aplikasi tidak valid: '{name}'.")
 
-    if os.name == "nt":
+    if _is_windows():
         candidates = APP_ALIASES_WINDOWS.get(key, (f"{key}.exe", key))
         for cand in candidates:
             if cand.endswith(":"):
@@ -213,7 +218,7 @@ def _windows_send_vk(vk_code: int) -> None:
 
 def _control_volume(arg: str) -> ActionResult:
     cmd_arg = (arg or "").strip().lower()
-    if os.name == "nt":
+    if _is_windows():
         vk_map = {"up": 0xAF, "naik": 0xAF, "down": 0xAE, "turun": 0xAE, "mute": 0xAD, "unmute": 0xAD}
         if cmd_arg in vk_map:
             repeats = 3 if cmd_arg in ("up", "naik", "down", "turun") else 1
@@ -278,7 +283,7 @@ def _control_volume(arg: str) -> ActionResult:
 
 def _control_media(arg: str) -> ActionResult:
     cmd_arg = (arg or "play_pause").strip().lower()
-    if os.name == "nt":
+    if _is_windows():
         vk_map = {
             "play_pause": 0xB3,
             "play": 0xB3,
@@ -318,7 +323,7 @@ def _take_screenshot() -> ActionResult:
     ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     out_path = out_dir / f"mochi_screenshot_{ts}.png"
 
-    if os.name == "nt":
+    if _is_windows():
         ps_script = (
             "Add-Type -AssemblyName System.Windows.Forms,System.Drawing;"
             "$b = [System.Windows.Forms.SystemInformation]::VirtualScreen;"
@@ -361,7 +366,7 @@ def get_system_summary() -> str:
 
     ram_info = ""
     bat_info = ""
-    if os.name == "nt":
+    if _is_windows():
         try:
             import ctypes
 
@@ -418,7 +423,7 @@ def get_system_summary() -> str:
 
 
 def _lock_screen() -> ActionResult:
-    if os.name == "nt":
+    if _is_windows():
         import ctypes
 
         ctypes.windll.user32.LockWorkStation()
@@ -440,7 +445,7 @@ def _lock_screen() -> ActionResult:
 def _copy_clipboard(text: str) -> ActionResult:
     if not text:
         return ActionResult(False, "clipboard", "Teks clipboard kosong.")
-    if os.name == "nt":
+    if _is_windows():
         subprocess.run(["clip"], input=text, text=True, encoding="utf-8", check=False)
         return ActionResult(True, "clipboard", "Teks disalin ke clipboard.")
     for tool, cmd in (
@@ -472,7 +477,7 @@ def _parse_duration_seconds(arg: str) -> int:
 
 def get_battery_percent() -> int | None:
     """Return laptop battery percentage (0..100) cross-platform, or None if desktop/unknown."""
-    if os.name == "nt":
+    if _is_windows():
         try:
             import ctypes
 
@@ -506,7 +511,7 @@ def get_battery_percent() -> int | None:
 
 def _control_brightness(arg: str) -> ActionResult:
     cmd_arg = (arg or "").strip().lower()
-    if os.name == "nt":
+    if _is_windows():
         if cmd_arg in ("up", "naik"):
             ps = (
                 "$b = (Get-CimInstance -Namespace root/WMI -ClassName WmiMonitorBrightness).CurrentBrightness;"
@@ -558,7 +563,7 @@ def _control_brightness(arg: str) -> ActionResult:
 
 def _read_clipboard() -> ActionResult:
     text = ""
-    if os.name == "nt":
+    if _is_windows():
         res = subprocess.run(
             ["powershell", "-NoProfile", "-Command", "Get-Clipboard"],
             capture_output=True,
@@ -618,7 +623,7 @@ def _send_hotkey(combo: str) -> ActionResult:
         return ActionResult(False, "hotkey", f"Shortcut '{combo}' tidak termasuk daftar shortcut aman.")
 
     win_vks, xdo_key, _wtype_key = entry
-    if os.name == "nt":
+    if _is_windows():
         import ctypes
 
         keyup = 0x0002
