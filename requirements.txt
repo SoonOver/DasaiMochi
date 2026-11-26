@@ -1,0 +1,5 @@
+# Core Python dependencies for Dasai Mochi (Terminal Edition)
+edge-tts>=7.0.0
+gTTS>=2.5.0
+requests>=2.31.0
+SpeechRecognition>=3.10.0

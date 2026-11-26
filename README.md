@@ -21,24 +21,33 @@
 
 ## Instalasi (Fresh Clone)
 
-### Menggunakan `uv` (Direkomendasikan)
+### Cara Tercepat (Otomatis)
 
 ```bash
-git clone https://github.com/<username>/DasaiMochi.git
+git clone https://github.com/SoonOver/DasaiMochi.git
 cd DasaiMochi
-uv sync
-uv run dasai-mochi
+./install.sh
+./mochi.py
 ```
 
-### Menggunakan `pip` + `venv`
+### Menggunakan `pip` + `requirements.txt`
 
 ```bash
-git clone https://github.com/<username>/DasaiMochi.git
+git clone https://github.com/SoonOver/DasaiMochi.git
 cd DasaiMochi
 python3 -m venv .venv
 source .venv/bin/activate
-pip install -e .
-dasai-mochi
+pip install -r requirements.txt
+python3 mochi.py
+```
+
+### Menggunakan `uv`
+
+```bash
+git clone https://github.com/SoonOver/DasaiMochi.git
+cd DasaiMochi
+uv sync
+uv run dasai-mochi
 ```
 
 Atau jalankan langsung lewat *launcher* ([mochi.py](mochi.py) otomatis memakai `.venv` lokal jika ada):

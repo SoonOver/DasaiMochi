@@ -71,3 +71,15 @@ def test_cli_ask_mocked(capsys, monkeypatch):
     )
     assert main(["--ask", "hai", "--no-tts"]) == 0
     assert "[happy] Halo bos!" in capsys.readouterr().out
+
+
+def test_requirements_txt_matches_pyproject():
+    from pathlib import Path
+    import tomllib
+
+    root = Path(__file__).resolve().parent.parent
+    pyproject = tomllib.loads((root / "pyproject.toml").read_text(encoding="utf-8"))
+    reqs = (root / "requirements.txt").read_text(encoding="utf-8")
+    for dep in pyproject["project"]["dependencies"]:
+        pkg_name = dep.split(">=")[0].split("==")[0].strip().lower()
+        assert pkg_name in reqs.lower()
