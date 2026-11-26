@@ -9,13 +9,13 @@ from pathlib import Path
 
 def _ensure_project_venv() -> None:
     root = Path(__file__).resolve().parent
-    if os.name == "nt":
-        venv_python = root / ".venv" / "Scripts" / "python.exe"
-    else:
-        venv_python = root / ".venv" / "bin" / "python"
+    venv_python = root / ".venv" / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
 
-    if venv_python.exists() and Path(sys.prefix).resolve() != (root / ".venv").resolve():
-        if os.environ.get("MOCHI_NO_VENV_REEXEC") != "1":
+    if (
+        venv_python.exists()
+        and Path(sys.prefix).resolve() != (root / ".venv").resolve()
+        and os.environ.get("MOCHI_NO_VENV_REEXEC") != "1"
+    ):
             env = os.environ.copy()
             env["MOCHI_NO_VENV_REEXEC"] = "1"
             cmd = [str(venv_python), str(Path(__file__).resolve()), *sys.argv[1:]]

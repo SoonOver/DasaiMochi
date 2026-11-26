@@ -4,10 +4,13 @@
 
 ## Fitur Utama
 
-- **10 Ekspresi OLED Animatif** (`idle`, `happy`, `love`, `sleepy`, `cool`, `surprised`, `angry`, `vibe`, `turbo`, `glitch`) dengan kedipan alami, lirikan mata, dan reaksi *boop* (`Space`).
-- **Tampilan Minimalis**: Menu dan legenda tersembunyi secara default — tekan `h` kapan saja untuk membuka menu lengkap.
+- **12 Ekspresi OLED Animatif + Jam Digital**: `idle`, `happy`, `love`, `sleepy`, `cool`, `surprised`, `angry`, `vibe`, `turbo`, `glitch`, `sad`, `wink`, ditambah mode **Retro Desk Clock + Baterai** (`k`).
 - **Tanpa Wajib Download OpenCode**: Default memakai **Kilo Gateway gratis tanpa API key** dengan context window besar **1M+ token** (`reflection/beam-free` 1,04M token default, `nvidia/nemotron-3.5-lightning:free` 1M token super cepat, `kilo-auto/free`), serta otomatis mendukung `GEMINI_API_KEY` (1M token), `GROQ_API_KEY`, `OPENCODE_API_KEY`, atau `opencode` CLI (`--backend opencode`).
-- **Kendali Komputer Lintas OS (Linux & Windows 10/11)**: Minta Mochi membuka aplikasi (`browser`, `calculator`, `notepad`, `vscode`, `files`), mencari di Google/YouTube, membuka folder, mengatur volume & media playback, mengambil screenshot, membaca CPU/RAM/baterai/jam, mengunci layar, menyalin clipboard, atau memasang timer.
+- **Percakapan Natural (Barge-In & Hands-Free)**:
+  - Bisa langsung menyela saat Mochi bicara dengan menekan `v` atau `t` (atau `x` untuk menghentikan).
+  - Mode **Hands-Free (`f` / `--hands-free`)** otomatis mendengarkan giliran berikutnya sampai kamu bilang `"stop"` / `"berhenti"`.
+  - **Memori Persisten**: Mochi mengingat nama & fakta yang kamu bagikan serta riwayat percakapan terakhir lintas sesi (`--reset-memory` untuk menghapus).
+- **Kendali Komputer Lintas OS (Linux & Windows 10/11)**: buka aplikasi, web/Google/YouTube, folder, atur volume, kecerahan layar (`brightness`), media playback, shortcut aman (`hotkey`), baca clipboard (`read_clipboard`), salin clipboard, screenshot, cek CPU/RAM/baterai/jam (`sysinfo`), kunci layar, dan timer pengingat.
 - **TTS Ringan & Cepat + Subtitle Streaming**:
   - Default **`tiktok-id`** (`id_001` dengan *formant shift* chibi via `mpv` atau Windows Media `winmm`)
   - Karakter anime **`zunda-jp`** / **`zunda-norm`** (VOICEVOX Zundamon), **`tiktok-anime`**, **`tiktok-jp`**, **`tiktok-en`**, **`gtts-chibi`**, serta opsi **`edge-chibi`** / **`edge-cute`**
@@ -104,13 +107,16 @@ python3 mochi.py
 
 | Tombol | Aksi |
 | --- | --- |
-| `v` / `r` | Mulai / hentikan rekam suara dari **mic** (otomatis berhenti saat jeda bicara) |
-| `t` | Ketik pesan teks langsung ke OpenCode + TTS |
-| `o` | Ganti model gratis OpenCode (`beam-free`, `hy4-flash-free`, `deepseek-v4.1-flash-free`, `qwen4-max-free`, `big-pickle`, dll.) |
+| `v` / `r` | Mulai / hentikan rekam suara dari **mic** (bisa langsung menyela saat Mochi bicara) |
+| `f` | Toggle mode **Hands-Free** (otomatis mendengarkan terus-menerus) |
+| `t` | Ketik pesan teks langsung ke AI + TTS (bisa langsung menyela saat bicara) |
+| `x` | Hentikan suara Mochi / batalkan giliran aktif tanpa keluar |
+| `k` | Toggle mode **Retro Desk Clock + Baterai** di layar OLED |
+| `o` | Ganti model AI (`reflection/beam-free`, `nemotron-3.5-lightning:free`, `kilo-auto/free`, dll.) |
 | `g` | Ganti suara & bahasa TTS/STT (`TikTok Mochi ID`, `Zundamon Sweet`, `TikTok Anime JP`, dll.) |
 | `s` | Toggle Mute / Unmute suara TTS |
 | `Space` | **Boop / Pat** Mochi |
-| `1`–`9`, `0` | Pilih mood langsung |
+| `1`–`9`, `0`, `-`, `=` | Pilih ekspresi langsung (`sad` pakai `-`, `wink` pakai `=`) |
 | `←` / `→` atau `p` / `n` | Ganti mood sebelumnya / berikutnya |
 | `c` | Ganti tema warna OLED (`cyan`, `white`, `amber`, `green`, `pink`, `red`) |
 | `a` | Toggle mode `AUTO` / `LOCK` |

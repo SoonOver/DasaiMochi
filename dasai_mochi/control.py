@@ -14,7 +14,6 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
-
 _ACTION_TAG_RE = re.compile(r"\[\s*action\s*:\s*([a-zA-Z0-9_-]+)(?:\s*:\s*([^\]]+))?\s*\]", re.IGNORECASE)
 _SAFE_APP_TOKEN_RE = re.compile(r"^[a-zA-Z0-9._ -]{1,48}$")
 
@@ -326,9 +325,10 @@ def _take_screenshot() -> ActionResult:
             "$bmp = New-Object System.Drawing.Bitmap($b.Width, $b.Height);"
             "$g = [System.Drawing.Graphics]::FromImage($bmp);"
             "$g.CopyFromScreen($b.Left, $b.Top, 0, 0, $bmp.Size);"
-            f"$bmp.Save('{str(out_path)}');"
+            "$bmp.Save($env:MOCHI_SHOT);"
         )
-        res = subprocess.run(["powershell", "-NoProfile", "-Command", ps_script], capture_output=True, check=False)
+        env = {**os.environ, "MOCHI_SHOT": str(out_path)}
+        res = subprocess.run(["powershell", "-NoProfile", "-Command", ps_script], env=env, capture_output=True, check=False)
         if res.returncode == 0 and out_path.exists():
             return ActionResult(True, "screenshot", f"Screenshot disimpan ke {out_path}.")
         return ActionResult(False, "screenshot", "Gagal mengambil screenshot di Windows.")
@@ -470,6 +470,170 @@ def _parse_duration_seconds(arg: str) -> int:
     return max(1, min(3600, val))
 
 
+def get_battery_percent() -> int | None:
+    """Return laptop battery percentage (0..100) cross-platform, or None if desktop/unknown."""
+    if os.name == "nt":
+        try:
+            import ctypes
+
+            class SYSTEM_POWER_STATUS(ctypes.Structure):
+                _fields_ = [
+                    ("ACLineStatus", ctypes.c_byte),
+                    ("BatteryFlag", ctypes.c_byte),
+                    ("BatteryLifePercent", ctypes.c_byte),
+                    ("SystemStatusFlag", ctypes.c_byte),
+                    ("BatteryLifeTime", ctypes.c_ulong),
+                    ("BatteryFullLifeTime", ctypes.c_ulong),
+                ]
+
+            st = SYSTEM_POWER_STATUS()
+            if ctypes.windll.kernel32.GetSystemPowerStatus(ctypes.byref(st)):
+                pct = int(st.BatteryLifePercent)
+                if 0 <= pct <= 100:
+                    return pct
+        except Exception:
+            pass
+        return None
+
+    for bat_dir in sorted(Path("/sys/class/power_supply").glob("BAT*")):
+        cap_file = bat_dir / "capacity"
+        if cap_file.exists():
+            raw = cap_file.read_text(encoding="utf-8", errors="ignore").strip()
+            if raw.isdigit():
+                return max(0, min(100, int(raw)))
+    return None
+
+
+def _control_brightness(arg: str) -> ActionResult:
+    cmd_arg = (arg or "").strip().lower()
+    if os.name == "nt":
+        if cmd_arg in ("up", "naik"):
+            ps = (
+                "$b = (Get-CimInstance -Namespace root/WMI -ClassName WmiMonitorBrightness).CurrentBrightness;"
+                "$n = [Math]::Min(100, $b + 15);"
+                "(Get-WmiObject -Namespace root/WMI -Class WmiMonitorBrightnessMethods).WmiSetBrightness(1, $n)"
+            )
+        elif cmd_arg in ("down", "turun"):
+            ps = (
+                "$b = (Get-CimInstance -Namespace root/WMI -ClassName WmiMonitorBrightness).CurrentBrightness;"
+                "$n = [Math]::Max(5, $b - 15);"
+                "(Get-WmiObject -Namespace root/WMI -Class WmiMonitorBrightnessMethods).WmiSetBrightness(1, $n)"
+            )
+        elif cmd_arg.rstrip("%").isdigit():
+            pct = max(5, min(100, int(cmd_arg.rstrip("%"))))
+            ps = f"(Get-WmiObject -Namespace root/WMI -Class WmiMonitorBrightnessMethods).WmiSetBrightness(1, {pct})"
+        else:
+            return ActionResult(False, "brightness", f"Argumen kecerahan tidak dikenal: '{arg}'.")
+        res = subprocess.run(["powershell", "-NoProfile", "-Command", ps], capture_output=True, check=False)
+        if res.returncode == 0:
+            return ActionResult(True, "brightness", f"Kecerahan layar {cmd_arg} diterapkan.")
+        return ActionResult(False, "brightness", "Gagal mengatur kecerahan layar di Windows.")
+
+    if shutil.which("brightnessctl"):
+        if cmd_arg in ("up", "naik"):
+            subprocess.run(["brightnessctl", "set", "10%+"], capture_output=True, check=False)
+        elif cmd_arg in ("down", "turun"):
+            subprocess.run(["brightnessctl", "set", "10%-"], capture_output=True, check=False)
+        elif cmd_arg.rstrip("%").isdigit():
+            pct = max(5, min(100, int(cmd_arg.rstrip("%"))))
+            subprocess.run(["brightnessctl", "set", f"{pct}%"], capture_output=True, check=False)
+        else:
+            return ActionResult(False, "brightness", f"Argumen kecerahan tidak dikenal: '{arg}'.")
+        return ActionResult(True, "brightness", f"Kecerahan layar {cmd_arg} dijalankan (brightnessctl).")
+
+    if shutil.which("xbacklight"):
+        if cmd_arg in ("up", "naik"):
+            subprocess.run(["xbacklight", "-inc", "10"], capture_output=True, check=False)
+        elif cmd_arg in ("down", "turun"):
+            subprocess.run(["xbacklight", "-dec", "10"], capture_output=True, check=False)
+        elif cmd_arg.rstrip("%").isdigit():
+            pct = max(5, min(100, int(cmd_arg.rstrip("%"))))
+            subprocess.run(["xbacklight", "-set", str(pct)], capture_output=True, check=False)
+        else:
+            return ActionResult(False, "brightness", f"Argumen kecerahan tidak dikenal: '{arg}'.")
+        return ActionResult(True, "brightness", f"Kecerahan layar {cmd_arg} dijalankan (xbacklight).")
+
+    return ActionResult(False, "brightness", "Tool kontrol kecerahan (brightnessctl/xbacklight) tidak ditemukan.")
+
+
+def _read_clipboard() -> ActionResult:
+    text = ""
+    if os.name == "nt":
+        res = subprocess.run(
+            ["powershell", "-NoProfile", "-Command", "Get-Clipboard"],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            check=False,
+        )
+        if res.returncode == 0:
+            text = res.stdout.strip()
+    else:
+        for tool, cmd in (
+            ("wl-paste", ["wl-paste", "-n"]),
+            ("xclip", ["xclip", "-o", "-selection", "clipboard"]),
+            ("xsel", ["xsel", "-ob"]),
+        ):
+            if shutil.which(tool):
+                res = subprocess.run(
+                    cmd,
+                    capture_output=True,
+                    text=True,
+                    encoding="utf-8",
+                    errors="replace",
+                    check=False,
+                )
+                if res.returncode == 0:
+                    text = res.stdout.strip()
+                    break
+    if not text:
+        return ActionResult(False, "read_clipboard", "Clipboard kosong atau tidak dapat dibaca.")
+    clipped = text[:220] + ("…" if len(text) > 220 else "")
+    return ActionResult(True, "read_clipboard", f"Isi clipboard: {clipped}")
+
+
+_SAFE_HOTKEYS: dict[str, tuple[tuple[int, ...], str, str]] = {
+    "alt+tab": ((0x12, 0x09), "alt+Tab", "Alt+Tab"),
+    "show_desktop": ((0x5B, 0x44), "super+d", "Super+d"),
+    "win+d": ((0x5B, 0x44), "super+d", "Super+d"),
+    "super+d": ((0x5B, 0x44), "super+d", "Super+d"),
+    "copy": ((0x11, 0x43), "ctrl+c", "Ctrl+c"),
+    "ctrl+c": ((0x11, 0x43), "ctrl+c", "Ctrl+c"),
+    "paste": ((0x11, 0x56), "ctrl+v", "Ctrl+v"),
+    "ctrl+v": ((0x11, 0x56), "ctrl+v", "Ctrl+v"),
+    "undo": ((0x11, 0x5A), "ctrl+z", "Ctrl+z"),
+    "ctrl+z": ((0x11, 0x5A), "ctrl+z", "Ctrl+z"),
+    "new_tab": ((0x11, 0x54), "ctrl+t", "Ctrl+t"),
+    "ctrl+t": ((0x11, 0x54), "ctrl+t", "Ctrl+t"),
+    "close_tab": ((0x11, 0x57), "ctrl+w", "Ctrl+w"),
+    "ctrl+w": ((0x11, 0x57), "ctrl+w", "Ctrl+w"),
+}
+
+
+def _send_hotkey(combo: str) -> ActionResult:
+    norm = combo.strip().lower().replace(" ", "")
+    entry = _SAFE_HOTKEYS.get(norm)
+    if entry is None:
+        return ActionResult(False, "hotkey", f"Shortcut '{combo}' tidak termasuk daftar shortcut aman.")
+
+    win_vks, xdo_key, _wtype_key = entry
+    if os.name == "nt":
+        import ctypes
+
+        keyup = 0x0002
+        for vk in win_vks:
+            ctypes.windll.user32.keybd_event(vk, 0, 0, 0)
+        for vk in reversed(win_vks):
+            ctypes.windll.user32.keybd_event(vk, 0, keyup, 0)
+        return ActionResult(True, "hotkey", f"Shortcut {norm} dijalankan.")
+
+    if shutil.which("xdotool"):
+        subprocess.run(["xdotool", "key", xdo_key], capture_output=True, check=False)
+        return ActionResult(True, "hotkey", f"Shortcut {norm} dijalankan (xdotool).")
+    return ActionResult(False, "hotkey", "Tool shortcut (xdotool) tidak ditemukan di Linux.")
+
+
 def execute_action(
     spec: ActionSpec,
     on_timer_done: Callable[[str], None] | None = None,
@@ -491,6 +655,8 @@ def execute_action(
             return _control_volume(arg)
         if kind == "media":
             return _control_media(arg)
+        if kind == "brightness":
+            return _control_brightness(arg)
         if kind == "screenshot":
             return _take_screenshot()
         if kind == "sysinfo":
@@ -499,6 +665,12 @@ def execute_action(
             return _lock_screen()
         if kind == "clipboard":
             return _copy_clipboard(arg)
+        if kind == "read_clipboard":
+            return _read_clipboard()
+        if kind == "hotkey":
+            return _send_hotkey(arg)
+        if kind == "forget_memory":
+            return ActionResult(True, "forget_memory", "Ingatan percakapan lama sudah kuhapus.")
         if kind == "timer":
             secs = _parse_duration_seconds(arg)
             if secs <= 0:

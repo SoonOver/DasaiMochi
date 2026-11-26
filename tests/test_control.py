@@ -56,3 +56,54 @@ def test_sysinfo_and_timer_and_volume_mocked(monkeypatch):
 
     bad_app = execute_action(ActionSpec("open_app", "calc; rm -rf /"))
     assert bad_app.ok is False
+
+
+def test_brightness_hotkey_clipboard_and_windows_screenshot_env(monkeypatch, tmp_path):
+    calls = []
+    monkeypatch.setattr("dasai_mochi.control.os.name", "posix")
+    monkeypatch.setattr(
+        "dasai_mochi.control.shutil.which",
+        lambda name: f"/usr/bin/{name}" if name in ("brightnessctl", "xdotool", "wl-paste") else None,
+    )
+
+    def fake_run(cmd, **_kw):
+        calls.append(cmd)
+        if cmd[0] == "wl-paste":
+            return SimpleNamespace(returncode=0, stdout="Teks penting dari clipboard")
+        return SimpleNamespace(returncode=0, stdout="")
+
+    monkeypatch.setattr("dasai_mochi.control.subprocess.run", fake_run)
+
+    res_br = execute_action(ActionSpec("brightness", "up"))
+    assert res_br.ok is True
+    assert calls[0][0] == "brightnessctl"
+
+    res_hk = execute_action(ActionSpec("hotkey", "alt+tab"))
+    assert res_hk.ok is True
+    assert calls[1][0] == "xdotool"
+
+    res_bad_hk = execute_action(ActionSpec("hotkey", "ctrl+alt+del"))
+    assert res_bad_hk.ok is False
+
+    res_cb = execute_action(ActionSpec("read_clipboard"))
+    assert res_cb.ok is True
+    assert "Teks penting" in res_cb.message
+
+    # Windows screenshot uses MOCHI_SHOT env var (safe for quotes in path)
+    win_calls = []
+    monkeypatch.setattr("dasai_mochi.control.os.name", "nt")
+    monkeypatch.setattr("dasai_mochi.control.Path.home", lambda: tmp_path)
+
+    def fake_win_shot(cmd, env=None, **_kw):
+        win_calls.append((cmd, env))
+        (tmp_path / Path_from_env(env["MOCHI_SHOT"])).write_bytes(b"PNG")
+        return SimpleNamespace(returncode=0)
+
+    def Path_from_env(p):
+        from pathlib import Path
+        return Path(p).name
+
+    monkeypatch.setattr("dasai_mochi.control.subprocess.run", fake_win_shot)
+    res_shot = execute_action(ActionSpec("screenshot"))
+    assert res_shot.ok is True
+    assert "$env:MOCHI_SHOT" in win_calls[0][0][-1]

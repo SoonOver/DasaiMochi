@@ -5,7 +5,6 @@ from types import SimpleNamespace
 import pytest
 
 from dasai_mochi.llm import (
-    DEFAULT_FREE_MODEL,
     OpenCodeClient,
     OpenCodeError,
     clean_text_for_speech,

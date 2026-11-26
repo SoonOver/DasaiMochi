@@ -82,3 +82,22 @@ def test_speaking_pauses_auto_cycle_and_avoids_mouth_clash():
     engine.render(fb)
     # When speaking, happy should omit its static mouth at y=21 and show clean speaking mouth
     assert any(px != PIXEL_OFF for row in fb.pixels for px in row)
+
+
+def test_clock_mode_and_sad_wink_moods():
+    fb = Framebuffer(64, 32)
+    engine = MochiEngine(mood="sad", auto_cycle=False)
+    engine.render(fb)
+    sad_pixels = sum(1 for row in fb.pixels for px in row if px != PIXEL_OFF)
+    assert sad_pixels > 20
+
+    engine.set_mood("wink")
+    engine.render(fb)
+    wink_pixels = sum(1 for row in fb.pixels for px in row if px != PIXEL_OFF)
+    assert wink_pixels > 20
+
+    engine.clock_mode = True
+    engine.battery_pct = 75
+    engine.render(fb)
+    clock_pixels = sum(1 for row in fb.pixels for px in row if px != PIXEL_OFF)
+    assert clock_pixels > 40

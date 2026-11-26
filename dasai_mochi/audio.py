@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import contextlib
+import itertools
 import math
 import os
 import re
@@ -20,9 +22,13 @@ from dataclasses import dataclass
 
 import requests
 
-
 TIKTOK_TTS_URL = "https://tiktok-tts.weilnet.workers.dev/api/generation"
 VOICEVOX_QUEST_URL = "https://api.tts.quest/v3/voicevox/synthesis"
+_MCI_COUNTER = itertools.count(1)
+
+
+def _next_mci_alias(prefix: str) -> str:
+    return f"{prefix}_{os.getpid()}_{next(_MCI_COUNTER)}"
 
 
 class AudioError(RuntimeError):
@@ -320,7 +326,7 @@ def _record_with_winmm(
     max_seconds: float = 12.0,
 ) -> float:
     """Fallback Windows 10 mic capture using built-in `winmm.dll` MCI."""
-    alias = f"mochi_rec_{os.getpid()}"
+    alias = _next_mci_alias("mochi_rec")
     started_at = time.monotonic()
     _winmm_mci(f"open new Type waveaudio Alias {alias}")
     try:
@@ -340,10 +346,8 @@ def _record_with_winmm(
     finally:
         if on_level is not None:
             on_level(0.0)
-        try:
+        with contextlib.suppress(Exception):
             _winmm_mci(f"close {alias}")
-        except Exception:
-            pass
     return max(0.2, time.monotonic() - started_at)
 
 
@@ -452,10 +456,8 @@ def record_mic_to_wav(
                     proc.kill()
             stderr_msg = ""
             if proc.stderr is not None:
-                try:
+                with contextlib.suppress(OSError):
                     stderr_msg = proc.stderr.read().decode(errors="ignore").strip()
-                except OSError:
-                    pass
 
         pcm = b"".join(pcm_chunks)
         if len(pcm) >= 3200:
@@ -746,7 +748,7 @@ def _play_audio_winmm(
     cancel_event: threading.Event | None = None,
 ) -> None:
     """Native Windows 10 MP3/WAV playback using built-in `winmm.dll` MCI."""
-    alias = f"mochi_tts_{os.getpid()}"
+    alias = _next_mci_alias("mochi_tts")
     words = display_text.split() if display_text else []
     word_idx = 0
     _winmm_mci(f'open "{audio_path}" type mpegvideo alias {alias}')
@@ -774,10 +776,8 @@ def _play_audio_winmm(
         if on_word is not None and display_text and not (cancel_event and cancel_event.is_set()):
             on_word(display_text)
     finally:
-        try:
+        with contextlib.suppress(Exception):
             _winmm_mci(f"close {alias}")
-        except Exception:
-            pass
 
 
 def _play_audio_file(
@@ -836,10 +836,8 @@ def _play_audio_file(
         )
     finally:
         if wav_path and os.path.exists(wav_path):
-            try:
+            with contextlib.suppress(OSError):
                 os.remove(wav_path)
-            except OSError:
-                pass
 
 
 def _stream_edge_to_mpv(
@@ -924,10 +922,8 @@ def _stream_edge_to_mpv(
             _pump_subtitles()
 
         if proc is not None and proc.stdin is not None:
-            try:
+            with contextlib.suppress(OSError):
                 proc.stdin.close()
-            except OSError:
-                pass
         return got_audio
 
     try:
@@ -1060,10 +1056,8 @@ def speak_text(
             )
         finally:
             if os.path.exists(mp3_path):
-                try:
+                with contextlib.suppress(OSError):
                     os.remove(mp3_path)
-                except OSError:
-                    pass
     finally:
         if on_end is not None:
             on_end()

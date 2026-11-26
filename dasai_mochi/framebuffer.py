@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-
 # Pixel intensity levels:
 # 0 = off (visor dark)
 # 1 = dim (glow / anti-alias / background detail)

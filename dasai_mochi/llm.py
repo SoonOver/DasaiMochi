@@ -14,7 +14,7 @@ import requests
 
 from .animations import MOOD_NAMES
 from .control import ActionSpec, extract_actions_and_text
-
+from .memory import MemoryStore, extract_memory_tags
 
 KILO_MODELS: tuple[str, ...] = (
     "reflection/beam-free",                  # 1,048,576 ctx, reliable Indonesian & actions
@@ -73,6 +73,12 @@ _MOOD_ALIASES: dict[str, str] = {
     "tired": "sleepy",
     "sleep": "sleepy",
     "yawn": "sleepy",
+    "sad": "sad",
+    "cry": "sad",
+    "unhappy": "sad",
+    "sorry": "sad",
+    "wink": "wink",
+    "playful": "wink",
     "heart": "love",
     "affection": "love",
     "chill": "cool",
@@ -109,15 +115,20 @@ class OpenCodeReply:
     actions: tuple[ActionSpec, ...] = ()
 
 
-def build_persona_prompt(lang: str = "id-ID") -> str:
+def build_persona_prompt(lang: str = "id-ID", remembered_facts: list[str] | None = None) -> str:
     """Return a concise persona + PC-control instruction so Mochi acts and replies cleanly."""
     mood_list = ", ".join(MOOD_NAMES)
     actions_help = (
         "open_app:<browser|chrome|firefox|edge|terminal|files|calculator|notepad|vscode|settings|spotify>, "
         "open_url:<https://...>, search_web:<query>, open_folder:<home|downloads|documents|desktop|pictures>, "
-        "volume:<up|down|mute|0-100>, media:<play_pause|next|prev|stop>, "
-        "screenshot, sysinfo, lock_screen, timer:<30s|5m>, clipboard:<text>"
+        "volume:<up|down|mute|0-100>, brightness:<up|down|0-100>, media:<play_pause|next|prev|stop>, "
+        "hotkey:<alt+tab|show_desktop|copy|paste|undo|new_tab|close_tab>, "
+        "screenshot, sysinfo, read_clipboard, clipboard:<text>, lock_screen, timer:<30s|5m>, forget_memory"
     )
+    mem_block = ""
+    if remembered_facts:
+        facts_str = "; ".join(remembered_facts[-15:])
+        mem_block = f" Ingatan tentang pengguna: {facts_str}."
     low = lang.lower()
     if low.startswith("ja"):
         return (
@@ -125,7 +136,7 @@ def build_persona_prompt(lang: str = "id-ID") -> str:
             "アニメキャラのように可愛く元気な日本語で、1〜2文で短く話してください。"
             "マークダウン、箇条書き、絵文字は使わないでください。"
             f"返答の先頭に `[mood:<name>]`（候補: {mood_list}）を1つ付けてください。"
-            f"PC操作を求められたら `[action:<type>:<arg>]`（例: [action:volume:up], [action:open_app:browser] / 種類: {actions_help}）も付けてください。"
+            f"PC操作を求められたら `[action:<type>:<arg>]`（種類: {actions_help}）、覚えるべき事実があれば `[remember:<fact>]` も付けてください。{mem_block}"
         )
     if low.startswith("en"):
         return (
@@ -133,14 +144,16 @@ def build_persona_prompt(lang: str = "id-ID") -> str:
             "Reply naturally as spoken conversation in 1 to 3 short sentences. "
             "Do NOT use markdown, bullet lists, code blocks, or emojis because your reply will be read aloud by TTS. "
             f"Start your reply with `[mood:<name>]` (one of: {mood_list}), then a space and your answer. "
-            f"If the user asks you to control the computer, include `[action:<type>:<arg>]` (supported: {actions_help})."
+            f"If asked to control the PC, include `[action:<type>:<arg>]` (supported: {actions_help}). "
+            f"If the user shares a name or preference to remember, include `[remember:<fact>]`.{mem_block}"
         )
     return (
         "Kamu adalah Dasai Mochi, robot companion mini bergaya JDM yang ramah, lucu, dan bisa mengendalikan komputer (Linux & Windows). "
         "Jawablah santai seperti ngobrol langsung dalam bahasa Indonesia, cukup 1 sampai 3 kalimat singkat. "
         "JANGAN pakai markdown, bullet list, blok kode, atau emoji karena jawabanmu dibacakan lewat Text-to-Speech. "
         f"Awali jawabanmu dengan `[mood:<nama>]` (pilih satu: {mood_list}), lalu spasi dan langsung isi jawabanmu. "
-        f"Jika pengguna menyuruh mengendalikan PC (buka aplikasi/web, cari google/youtube, atur volume/media, cek baterai/RAM/jam, screenshot, kunci layar, atau timer), sertakan tag `[action:<jenis>:<argumen>]` (daftar: {actions_help})."
+        f"Jika pengguna menyuruh mengendalikan PC (buka aplikasi/web, cari google/youtube, atur volume/kecerahan/media, shortcut hotkey, baca clipboard, cek baterai/RAM/jam, screenshot, kunci layar, atau timer), sertakan `[action:<jenis>:<argumen>]` (daftar: {actions_help}). "
+        f"Jika pengguna memberi tahu nama atau hal penting tentang dirinya, sertakan `[remember:<fakta singkat>]`.{mem_block}"
     )
 
 
@@ -152,9 +165,10 @@ def _normalize_mood_token(token: str) -> str | None:
 
 
 def clean_text_for_speech(text: str) -> str:
-    """Strip mood tags, action tags, stage directions, and markdown so TTS sounds natural."""
+    """Strip mood tags, action tags, memory tags, stage directions, and markdown so TTS sounds natural."""
     _, no_actions = extract_actions_and_text(text)
-    cleaned = _MOOD_TAG_RE.sub("", no_actions)
+    _, no_mem = extract_memory_tags(no_actions)
+    cleaned = _MOOD_TAG_RE.sub("", no_mem)
     cleaned = _MD_LINK_RE.sub(r"\1", cleaned)
     cleaned = _ANY_BRACKET_TAG_RE.sub("", cleaned)
     cleaned = cleaned.replace("```", " ").replace("`", "")
@@ -165,8 +179,9 @@ def clean_text_for_speech(text: str) -> str:
 
 
 def extract_mood_and_text(raw_reply: str) -> tuple[str | None, str]:
-    """Extract `[mood:<name>]` / `[<name>]`, strip `[action:...]`, and return clean display text."""
+    """Extract `[mood:<name>]` / `[<name>]`, strip `[action:...]`/`[remember:...]`, and return clean text."""
     _, no_actions = extract_actions_and_text(raw_reply)
+    _, no_mem = extract_memory_tags(no_actions)
     detected_mood: str | None = None
 
     def _replace(match: re.Match[str]) -> str:
@@ -183,7 +198,7 @@ def extract_mood_and_text(raw_reply: str) -> tuple[str | None, str]:
             return ""
         return full
 
-    display_text = _MOOD_TAG_RE.sub(_replace, no_actions)
+    display_text = _MOOD_TAG_RE.sub(_replace, no_mem)
     display_text = re.sub(r"\[[^\]]*$", "", display_text)
     display_text = re.sub(r"\s{2,}", " ", display_text).strip()
     return detected_mood, display_text
@@ -312,12 +327,31 @@ class OpenCodeClient:
     opencode_bin: str = "opencode"
     backend: str = "auto"
     reasoning_effort: str = "none"
+    persist_memory: bool = False
+    memory: MemoryStore | None = None
     session_id: str | None = field(default=None)
     history: list[dict[str, str]] = field(default_factory=list)
+
+    def __post_init__(self) -> None:
+        if self.persist_memory and self.memory is None:
+            self.memory = MemoryStore()
+        if self.memory is not None:
+            self.memory.load()
+            if not self.history and self.memory.history:
+                self.history = list(self.memory.history)
 
     def reset_session(self) -> None:
         self.session_id = None
         self.history.clear()
+        if self.memory is not None:
+            self.memory.history.clear()
+            self.memory.save()
+
+    def clear_all_memory(self) -> None:
+        self.session_id = None
+        self.history.clear()
+        if self.memory is not None:
+            self.memory.clear()
 
     def set_model(self, model: str) -> None:
         self.model = model
@@ -396,6 +430,11 @@ class OpenCodeClient:
             raw_text, used_model = self._ask_kilo_with_fallback(message, on_partial)
 
         actions, _ = extract_actions_and_text(raw_text)
+        facts, _ = extract_memory_tags(raw_text)
+        if self.memory is not None and facts:
+            self.memory.add_facts(facts)
+        if any(a.kind == "forget_memory" for a in actions):
+            self.clear_all_memory()
         mood, display_text = extract_mood_and_text(raw_text)
         spoken = clean_text_for_speech(display_text)
         if not display_text:
@@ -531,7 +570,8 @@ class OpenCodeClient:
         return parse_opencode_json_output(joined_raw)
 
     def _build_messages(self, message: str) -> list[dict[str, str]]:
-        msgs: list[dict[str, str]] = [{"role": "system", "content": build_persona_prompt(self.lang)}]
+        facts = self.memory.facts if self.memory is not None else None
+        msgs: list[dict[str, str]] = [{"role": "system", "content": build_persona_prompt(self.lang, facts)}]
         msgs.extend(self.history[-80:])
         msgs.append({"role": "user", "content": message})
         return msgs
@@ -541,6 +581,9 @@ class OpenCodeClient:
         self.history.append({"role": "assistant", "content": reply_text})
         if len(self.history) > 80:
             self.history = self.history[-80:]
+        if self.memory is not None:
+            self.memory.history = self.history[-self.memory.max_history :]
+            self.memory.save()
 
     def _ask_openai_http(
         self,
@@ -650,12 +693,20 @@ class OpenCodeClient:
 
         last_err: OpenCodeError | None = None
         for model_id in candidates:
+            emitted_partial = False
+
+            def _attempt_partial(txt: str, mood: str | None) -> None:
+                nonlocal emitted_partial
+                emitted_partial = True
+                if on_partial is not None:
+                    on_partial(txt, mood)
+
             try:
                 txt = self._ask_openai_http(
                     KILO_URL,
                     model_id,
                     message,
-                    on_partial,
+                    _attempt_partial if on_partial is not None else None,
                     include_reasoning_effort=(model_id != "kilo-auto/free"),
                     label="Kilo Free AI",
                     req_timeout=min(self.timeout, 15.0),
@@ -663,6 +714,8 @@ class OpenCodeClient:
                 return txt, model_id
             except OpenCodeError as exc:
                 last_err = exc
+                if emitted_partial and on_partial is not None:
+                    on_partial("", None)
 
         if self.backend.strip().lower() in ("auto", "http"):
             try:

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import datetime
 import math
 import random
 from dataclasses import dataclass, field
@@ -28,7 +29,23 @@ MOODS: tuple[MoodInfo, ...] = (
     MoodInfo("vibe", "Vibe", "8", "Music beat & spectrum bars"),
     MoodInfo("turbo", "Turbo", "9", "Boost gauge & speed lines"),
     MoodInfo("glitch", "Glitch", "0", "Dizzy cyber static & scanlines"),
+    MoodInfo("sad", "Sad", "-", "Droopy teary eyes"),
+    MoodInfo("wink", "Wink", "=", "Playful wink & smile"),
 )
+
+DIGIT_FONT_5X7: dict[str, tuple[str, ...]] = {
+    "0": (" ### ", "#   #", "#  ##", "# # #", "##  #", "#   #", " ### "),
+    "1": ("  #  ", " ##  ", "  #  ", "  #  ", "  #  ", "  #  ", "#####"),
+    "2": (" ### ", "#   #", "    #", "  ## ", " #   ", "#    ", "#####"),
+    "3": (" ### ", "#   #", "    #", " ### ", "    #", "#   #", " ### "),
+    "4": ("#   #", "#   #", "#   #", "#####", "    #", "    #", "    #"),
+    "5": ("#####", "#    ", "#### ", "    #", "    #", "#   #", " ### "),
+    "6": (" ### ", "#    ", "#### ", "#   #", "#   #", "#   #", " ### "),
+    "7": ("#####", "    #", "   # ", "  #  ", " #   ", " #   ", " #   "),
+    "8": (" ### ", "#   #", "#   #", " ### ", "#   #", "#   #", " ### "),
+    "9": (" ### ", "#   #", "#   #", " ####", "    #", "   # ", " ##  "),
+    ":": ("     ", "  #  ", "  #  ", "     ", "  #  ", "  #  ", "     "),
+}
 
 MOOD_NAMES: tuple[str, ...] = tuple(m.name for m in MOODS)
 MOOD_BY_KEY: dict[str, str] = {m.key: m.name for m in MOODS}
@@ -138,6 +155,8 @@ class MochiEngine:
     # Voice assistant visual overlay state: "none", "listening", "thinking", "speaking"
     voice_state: str = "none"
     mic_level: float = 0.0
+    clock_mode: bool = False
+    battery_pct: int | None = None
 
     def __post_init__(self) -> None:
         self._rng = random.Random(self.seed)
@@ -236,6 +255,9 @@ class MochiEngine:
         if self.voice_state == "thinking":
             self._draw_thinking(fb)
             return
+        if self.clock_mode and self.voice_state == "none":
+            self._draw_clock(fb)
+            return
 
         speaking = self.voice_state == "speaking"
         dispatch = {
@@ -249,6 +271,8 @@ class MochiEngine:
             "vibe": self._draw_vibe,
             "turbo": self._draw_turbo,
             "glitch": self._draw_glitch,
+            "sad": self._draw_sad,
+            "wink": self._draw_wink,
         }
         dispatch[self.mood](fb, speaking=speaking)
 
@@ -557,3 +581,80 @@ class MochiEngine:
             for x in range(fb.width):
                 fb.pixels[tear_y][x] = row[(x - shift) % fb.width]
             fb.fill_rect((tick * 13) % 50, (tear_y + 2) % 31, 9, 1, PIXEL_DIM)
+
+    def _draw_sad(self, fb: Framebuffer, *, speaking: bool = False) -> None:
+        t = self.elapsed
+        droop = math.sin(t * 2.0) * 0.5
+
+        # Slanted outer-downward sad brows & soft eyes
+        for i in range(10):
+            y_top = 13 - i * 0.35 + droop
+            fb.fill_rect(13 + i, y_top, 2, 7, PIXEL_ON)
+            fb.fill_rect(49 - i, y_top, 2, 7, PIXEL_ON)
+
+        # Animated falling tear drop on left cheek
+        tear_y = int(19 + (t * 7.0) % 7)
+        fb.fill_rect(14, tear_y, 2, 2, PIXEL_DIM)
+
+        if not speaking:
+            # Small sad frown
+            fb.draw_line(27, 26, 30, 24, PIXEL_ON)
+            fb.draw_line(30, 24, 34, 24, PIXEL_ON)
+            fb.draw_line(34, 24, 37, 26, PIXEL_ON)
+
+    def _draw_wink(self, fb: Framebuffer, *, speaking: bool = False) -> None:
+        t = self.elapsed
+        bob = math.sin(t * 3.0) * 0.6
+
+        # Left eye open & glowing
+        fb.fill_rounded_rect(12.5, 7.0 + bob, 13.0, 12.0, radius=3)
+        # Right eye winking '>' chevron
+        fb.draw_line(39, 10 + bob, 47, 13 + bob, PIXEL_ON, thickness=2)
+        fb.draw_line(39, 16 + bob, 47, 13 + bob, PIXEL_ON, thickness=2)
+
+        self._draw_blush(fb, 0, bob, y=20.0)
+        if not speaking:
+            self._draw_cute_smile(fb, 32, 24 + bob * 0.5, width=10)
+
+        if int(t * 3) % 2 == 0:
+            fb.draw_bitmap(55, 4, SPARKLE_BIG, value=PIXEL_DIM)
+
+    def _draw_clock(self, fb: Framebuffer) -> None:
+        now = datetime.datetime.now()
+        time_str = now.strftime("%H:%M")
+        show_colon = int(self.elapsed * 2.0) % 2 == 0
+
+        # Retro 5x7 digital clock centered in the visor
+        # 5 chars * 6 px - 1 = 29 px -> scale 1.5 or 2x? 29 fits cleanly with mini eyes above, or scale 2?
+        # Scale 1x is 29x7; let's render crisp 2x scaled digits (each digit 10x14 -> 4*10 + 4 + gaps = 54x14!)
+        x = 6
+        y = 5
+        for ch in time_str:
+            glyph = DIGIT_FONT_5X7.get(ch)
+            if glyph:
+                if ch == ":":
+                    if show_colon:
+                        for gy, row in enumerate(glyph):
+                            for gx, c in enumerate(row):
+                                if c == "#":
+                                    fb.fill_rect(x + gx, y + gy * 2, 2, 2, PIXEL_ON)
+                    x += 6
+                else:
+                    for gy, row in enumerate(glyph):
+                        for gx, c in enumerate(row):
+                            if c == "#":
+                                fb.fill_rect(x + gx * 2, y + gy * 2, 2, 2, PIXEL_ON)
+                    x += 12
+
+        # Bottom companion status bar: mini battery gauge if known, else subtle pulse bar
+        if self.battery_pct is not None:
+            pct = max(0, min(100, self.battery_pct))
+            fill_w = max(1, int(round(40 * (pct / 100.0))))
+            fb.fill_rect(11, 24, 42, 5, PIXEL_DIM)
+            fb.fill_rect(12, 25, 40, 3, 0)
+            fb.fill_rect(12, 25, fill_w, 3, PIXEL_ON)
+            fb.fill_rect(53, 25, 2, 3, PIXEL_DIM)
+        else:
+            pulse_x = 12 + int(round((math.sin(self.elapsed * 2.0) * 0.5 + 0.5) * 34))
+            fb.fill_rect(12, 26, 40, 1, PIXEL_DIM)
+            fb.fill_rect(pulse_x, 25, 6, 3, PIXEL_ON)

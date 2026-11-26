@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
 import os
 import sys
 
@@ -11,9 +12,9 @@ from .audio import DEFAULT_VOICE_KEY, VOICE_PRESETS, resolve_voice, speak_text
 from .control import execute_action
 from .framebuffer import Framebuffer, build_bezel
 from .llm import DEFAULT_FREE_MODEL, OpenCodeClient, OpenCodeError, discover_free_models
+from .memory import MemoryStore
 from .themes import THEME_ORDER, get_theme
 from .tui import run_tui
-
 
 ANSI_RESET = "\033[0m"
 ANSI_BG_BLACK = "\033[40m"
@@ -179,6 +180,21 @@ def build_parser() -> argparse.ArgumentParser:
         help="Immediately start listening to microphone on launch",
     )
     parser.add_argument(
+        "--hands-free",
+        action="store_true",
+        help="Enable continuous hands-free voice conversation loop",
+    )
+    parser.add_argument(
+        "--clock",
+        action="store_true",
+        help="Start in retro OLED desk clock + battery mode",
+    )
+    parser.add_argument(
+        "--reset-memory",
+        action="store_true",
+        help="Clear saved companion memory/facts before starting",
+    )
+    parser.add_argument(
         "--ask",
         default=None,
         help="Ask one question via OpenCode free model, print reply (and speak unless --no-tts), then exit",
@@ -214,10 +230,8 @@ def build_parser() -> argparse.ArgumentParser:
 def _configure_windows_console() -> None:
     for stream in (sys.stdout, sys.stderr):
         if hasattr(stream, "reconfigure"):
-            try:
+            with contextlib.suppress(Exception):
                 stream.reconfigure(encoding="utf-8", errors="replace")
-            except Exception:
-                pass
     if os.name == "nt":
         try:
             import ctypes
@@ -256,6 +270,12 @@ def main(argv: list[str] | None = None) -> int:
             )
         return 0
 
+    if args.reset_memory:
+        MemoryStore().clear()
+        if args.ask is None and not args.snapshot and not (sys.stdin.isatty() and sys.stdout.isatty()):
+            print("Memori Dasai Mochi dihapus.")
+            return 0
+
     if args.ask is not None:
         voice = resolve_voice(
             args.voice,
@@ -270,6 +290,7 @@ def main(argv: list[str] | None = None) -> int:
             standalone=args.standalone,
             backend=args.backend,
             reasoning_effort=args.reasoning,
+            persist_memory=True,
         )
         try:
             reply = client.ask(args.ask)
@@ -279,7 +300,7 @@ def main(argv: list[str] | None = None) -> int:
         extra_notes: list[str] = []
         for spec in reply.actions:
             res = execute_action(spec)
-            if res.kind == "sysinfo" or not res.ok:
+            if res.kind in ("sysinfo", "read_clipboard", "forget_memory") or not res.ok:
                 extra_notes.append(res.message)
         out_text = f"{reply.text} {' '.join(extra_notes)}".strip() if extra_notes else reply.text
         out_spoken = f"{reply.spoken_text}. {' '.join(extra_notes)}".strip() if extra_notes else reply.spoken_text
@@ -324,4 +345,6 @@ def main(argv: list[str] | None = None) -> int:
         backend=args.backend,
         reasoning_effort=args.reasoning,
         start_talking=args.talk,
+        hands_free=args.hands_free,
+        clock_mode=args.clock,
     )

@@ -75,6 +75,7 @@ def test_cli_ask_mocked(capsys, monkeypatch):
 
 def test_requirements_txt_matches_pyproject():
     from pathlib import Path
+
     import tomllib
 
     root = Path(__file__).resolve().parent.parent
