@@ -26,7 +26,37 @@ FREE_MODELS: tuple[str, ...] = (
 
 DEFAULT_FREE_MODEL = FREE_MODELS[0]
 
-_MOOD_TAG_RE = re.compile(r"\[mood:([a-zA-Z0-9_-]+)\]", re.IGNORECASE)
+_MOOD_ALIASES: dict[str, str] = {
+    "excited": "happy",
+    "cheerful": "happy",
+    "joy": "happy",
+    "smile": "happy",
+    "shock": "surprised",
+    "shocked": "surprised",
+    "amazed": "surprised",
+    "wow": "surprised",
+    "mad": "angry",
+    "annoyed": "angry",
+    "tired": "sleepy",
+    "sleep": "sleepy",
+    "yawn": "sleepy",
+    "heart": "love",
+    "affection": "love",
+    "chill": "cool",
+    "confident": "cool",
+    "music": "vibe",
+    "dancing": "vibe",
+    "fast": "turbo",
+    "boost": "turbo",
+    "dizzy": "glitch",
+    "confused": "glitch",
+}
+
+_MOOD_TAG_RE = re.compile(
+    r"\[\s*(?:(?:mood|ekspresi|emotion)\s*[:=]\s*)?([a-zA-Z0-9_-]+)\s*\]",
+    re.IGNORECASE,
+)
+_ANY_BRACKET_TAG_RE = re.compile(r"\[[^\]]{1,32}\]")
 _MD_LINK_RE = re.compile(r"\[([^\]]+)\]\([^)]+\)")
 
 
@@ -71,10 +101,18 @@ def build_persona_prompt(lang: str = "id-ID") -> str:
     )
 
 
+def _normalize_mood_token(token: str) -> str | None:
+    candidate = token.strip().lower()
+    if candidate in MOOD_NAMES:
+        return candidate
+    return _MOOD_ALIASES.get(candidate)
+
+
 def clean_text_for_speech(text: str) -> str:
-    """Strip mood tags and lightweight markdown so TTS sounds natural."""
+    """Strip mood tags, stage directions, and lightweight markdown so TTS sounds natural."""
     cleaned = _MOOD_TAG_RE.sub("", text)
     cleaned = _MD_LINK_RE.sub(r"\1", cleaned)
+    cleaned = _ANY_BRACKET_TAG_RE.sub("", cleaned)
     cleaned = cleaned.replace("```", " ").replace("`", "")
     cleaned = cleaned.replace("**", "").replace("__", "").replace("*", "")
     cleaned = re.sub(r"^#{1,6}\s+", "", cleaned, flags=re.MULTILINE)
@@ -83,14 +121,27 @@ def clean_text_for_speech(text: str) -> str:
 
 
 def extract_mood_and_text(raw_reply: str) -> tuple[str | None, str]:
-    """Extract `[mood:<name>]` if valid and return `(mood, clean_text)`."""
+    """Extract `[mood:<name>]` or `[<name>]` if valid and return `(mood, clean_text)`."""
     detected_mood: str | None = None
-    for match in _MOOD_TAG_RE.finditer(raw_reply):
-        candidate = match.group(1).strip().lower()
-        if candidate in MOOD_NAMES:
-            detected_mood = candidate
-            break
-    display_text = _MOOD_TAG_RE.sub("", raw_reply).strip()
+
+    def _replace(match: re.Match[str]) -> str:
+        nonlocal detected_mood
+        full = match.group(0)
+        token = match.group(1)
+        resolved = _normalize_mood_token(token)
+        has_prefix = bool(re.match(r"^\[\s*(?:mood|ekspresi|emotion)\s*[:=]", full, re.IGNORECASE))
+        if resolved is not None:
+            if detected_mood is None:
+                detected_mood = resolved
+            return ""
+        if has_prefix:
+            return ""
+        return full
+
+    display_text = _MOOD_TAG_RE.sub(_replace, raw_reply)
+    # Hide incomplete trailing `[` tag while streaming tokens
+    display_text = re.sub(r"\[[^\]]*$", "", display_text)
+    display_text = re.sub(r"\s{2,}", " ", display_text).strip()
     return detected_mood, display_text
 
 

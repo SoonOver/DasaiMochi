@@ -42,6 +42,19 @@ def test_extract_mood_and_clean_speech():
     assert unknown_mood is None
     assert clean_only == "Hai!"
 
+    bare_mood, bare_display = extract_mood_and_text("[surprised] Wah beneran nih?!")
+    assert bare_mood == "surprised"
+    assert bare_display == "Wah beneran nih?!"
+    assert clean_text_for_speech("[surprised] Wah [laughs] beneran nih?!") == "Wah beneran nih?!"
+
+    spaced_mood, spaced_display = extract_mood_and_text("[mood: shocked] Kaget banget!")
+    assert spaced_mood == "surprised"
+    assert spaced_display == "Kaget banget!"
+
+    partial_mood, partial_display = extract_mood_and_text("[surp")
+    assert partial_mood is None
+    assert partial_display == ""
+
 
 def test_opencode_client_ask_tracks_session(monkeypatch):
     calls = []
