@@ -101,8 +101,33 @@ def test_opencode_client_streaming_partial_callbacks(monkeypatch):
     monkeypatch.setattr("dasai_mochi.llm.subprocess.Popen", lambda *a, **kw: FakeProc())
 
     partials = []
-    client = OpenCodeClient(model=DEFAULT_FREE_MODEL)
+    client = OpenCodeClient(model=DEFAULT_FREE_MODEL, backend="opencode")
     reply = client.ask("Hai", on_partial=lambda txt, mood: partials.append((txt, mood)))
     assert reply.mood == "happy"
     assert reply.text == "Halo dunia!"
     assert partials == [("Halo", "happy"), ("Halo dunia!", "happy")]
+
+
+def test_auto_backend_falls_back_to_keyless_pollinations(monkeypatch):
+    from types import SimpleNamespace
+
+    monkeypatch.setattr("dasai_mochi.llm.shutil.which", lambda _name: None)
+    monkeypatch.delenv("OPENCODE_API_KEY", raising=False)
+
+    monkeypatch.setattr(
+        "dasai_mochi.llm.requests.post",
+        lambda *_a, **_kw: SimpleNamespace(
+            status_code=200,
+            text="[happy] Siap, kubuka browsernya! [action:open_app:browser]",
+        ),
+    )
+
+    client = OpenCodeClient(backend="auto")
+    assert client.active_backend() == "pollinations"
+    reply = client.ask("Buka browser dong")
+    assert reply.mood == "happy"
+    assert reply.text == "Siap, kubuka browsernya!"
+    assert reply.spoken_text == "Siap, kubuka browsernya!"
+    assert len(reply.actions) == 1
+    assert reply.actions[0].kind == "open_app"
+    assert reply.actions[0].arg == "browser"

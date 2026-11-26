@@ -33,7 +33,7 @@ if (Get-Command mpv -ErrorAction SilentlyContinue) {
 if (Get-Command opencode -ErrorAction SilentlyContinue) {
     Write-Host "  [OK] opencode CLI terpasang"
 } else {
-    Write-Host "  [!] opencode CLI belum ditemukan di PATH (dibutuhkan untuk fitur chat AI: https://opencode.ai)"
+    Write-Host "  [INFO] opencode CLI belum ada - Mochi otomatis pakai API AI gratis bawaan tanpa perlu install opencode."
 }
 
 Write-Host ""

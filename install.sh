@@ -49,8 +49,7 @@ fi
 if command -v opencode >/dev/null 2>&1; then
     echo "  [OK] opencode CLI terpasang"
 else
-    echo "  [!] opencode CLI belum ada (dibutuhkan untuk fitur chat AI: https://opencode.ai)"
-    missing=1
+    echo "  [INFO] opencode CLI tidak ada - Mochi otomatis pakai API AI gratis bawaan tanpa download opencode."
 fi
 
 if [ "$missing" -eq 1 ]; then

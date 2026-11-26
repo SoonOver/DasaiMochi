@@ -45,7 +45,7 @@ def test_cli_list_voices_and_models(capsys, monkeypatch):
     from dasai_mochi.llm import DEFAULT_FREE_MODEL
 
     assert DEFAULT_FREE_MODEL == "opencode/beam-free"
-    monkeypatch.setattr("dasai_mochi.cli.discover_free_models", lambda: ("opencode/beam-free",))
+    monkeypatch.setattr("dasai_mochi.cli.discover_free_models", lambda **_kw: ("opencode/beam-free",))
     assert main(["--list-models"]) == 0
     assert "opencode/beam-free" in capsys.readouterr().out
 

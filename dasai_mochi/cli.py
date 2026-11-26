@@ -8,6 +8,7 @@ import sys
 
 from .animations import MOOD_NAMES, MOODS, MochiEngine
 from .audio import DEFAULT_VOICE_KEY, VOICE_PRESETS, resolve_voice, speak_text
+from .control import execute_action
 from .framebuffer import Framebuffer, build_bezel
 from .llm import DEFAULT_FREE_MODEL, OpenCodeClient, OpenCodeError, discover_free_models
 from .themes import THEME_ORDER, get_theme
@@ -122,7 +123,13 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--model",
         default=DEFAULT_FREE_MODEL,
-        help=f"OpenCode model ID (default: {DEFAULT_FREE_MODEL})",
+        help=f"AI model ID (default: {DEFAULT_FREE_MODEL} / openai-fast when keyless HTTP)",
+    )
+    parser.add_argument(
+        "--backend",
+        choices=("auto", "opencode", "zen", "pollinations", "http"),
+        default="auto",
+        help="AI backend: auto (opencode if installed, else keyless HTTP API), opencode, zen, or pollinations",
     )
     parser.add_argument(
         "--voice",
@@ -229,8 +236,8 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if args.list_models:
-        for model in discover_free_models():
-            marker = " (default)" if model == DEFAULT_FREE_MODEL else ""
+        for model in discover_free_models(backend=args.backend):
+            marker = " (default)" if model in (DEFAULT_FREE_MODEL, "openai-fast") else ""
             print(f"{model}{marker}")
         return 0
 
@@ -251,16 +258,28 @@ def main(argv: list[str] | None = None) -> int:
             rate_override=args.rate,
             speed_override=args.speed,
         )
-        client = OpenCodeClient(model=args.model, lang=voice.lang, standalone=args.standalone)
+        client = OpenCodeClient(
+            model=args.model,
+            lang=voice.lang,
+            standalone=args.standalone,
+            backend=args.backend,
+        )
         try:
             reply = client.ask(args.ask)
         except OpenCodeError as exc:
             print(f"Error: {exc}", file=sys.stderr)
             return 1
+        extra_notes: list[str] = []
+        for spec in reply.actions:
+            res = execute_action(spec)
+            if res.kind == "sysinfo" or not res.ok:
+                extra_notes.append(res.message)
+        out_text = f"{reply.text} {' '.join(extra_notes)}".strip() if extra_notes else reply.text
+        out_spoken = f"{reply.spoken_text}. {' '.join(extra_notes)}".strip() if extra_notes else reply.spoken_text
         mood_tag = f"[{reply.mood}] " if reply.mood else ""
-        print(f"{mood_tag}{reply.text}")
+        print(f"{mood_tag}{out_text}")
         if not args.no_tts:
-            speak_text(reply.spoken_text, voice=voice, display_text=reply.text)
+            speak_text(out_spoken, voice=voice, display_text=out_text)
         return 0
 
     if args.snapshot:
@@ -295,5 +314,6 @@ def main(argv: list[str] | None = None) -> int:
         speed_override=args.speed,
         tts_enabled=not args.no_tts,
         standalone=args.standalone,
+        backend=args.backend,
         start_talking=args.talk,
     )

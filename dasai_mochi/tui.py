@@ -22,8 +22,9 @@ from .audio import (
     speak_text,
     transcribe_wav,
 )
+from .control import execute_action
 from .framebuffer import Framebuffer, build_bezel
-from .llm import DEFAULT_FREE_MODEL, FREE_MODELS, OpenCodeClient, OpenCodeError, discover_free_models
+from .llm import DEFAULT_FREE_MODEL, FREE_MODELS, POLLINATIONS_MODELS, OpenCodeClient, OpenCodeError, discover_free_models
 from .themes import Theme, get_theme, next_theme
 
 
@@ -110,9 +111,11 @@ class VoiceController:
 
     def refresh_models_async(self) -> None:
         def _worker() -> None:
-            found = discover_free_models()
+            found = discover_free_models(backend=self.llm.active_backend())
             with self.lock:
                 self.models = found
+                if found and self.llm.model not in found:
+                    self.llm.model = found[0]
 
         threading.Thread(target=_worker, daemon=True).start()
 
@@ -152,11 +155,12 @@ class VoiceController:
 
     def cycle_model(self) -> str:
         with self.lock:
-            models = self.models or FREE_MODELS
+            fallback = POLLINATIONS_MODELS if self.llm.active_backend() == "pollinations" else FREE_MODELS
+            models = self.models or fallback
             idx = models.index(self.llm.model) if self.llm.model in models else -1
             nxt = models[(idx + 1) % len(models)]
             self.llm.set_model(nxt)
-            self.status_line = f"Model OpenCode: {nxt} (sesi baru)"
+            self.status_line = f"Model ({self.llm.active_backend()}): {nxt} (sesi baru)"
             self.is_error = False
             return nxt
 
@@ -183,7 +187,12 @@ class VoiceController:
             self.last_user = user_text
             self.last_mochi = ""
             self.is_error = False
-            model_short = self.llm.model.split("/")[-1]
+            active_b = self.llm.active_backend()
+            model_short = (
+                self.llm.model
+                if active_b != "pollinations" or self.llm.model in POLLINATIONS_MODELS
+                else POLLINATIONS_MODELS[0]
+            ).split("/")[-1]
             self.status_line = f"Mochi sedang berpikir ({model_short})..."
 
         def _on_partial(partial_text: str, partial_mood: str | None) -> None:
@@ -197,6 +206,33 @@ class VoiceController:
         reply = self.llm.ask(user_text, on_partial=_on_partial)
         if cancel_ev.is_set():
             return
+
+        # Execute any requested cross-platform computer control actions
+        action_notes: list[str] = []
+        if reply.actions:
+            def _on_timer(msg: str) -> None:
+                with self.lock:
+                    self.engine.set_mood("surprised")
+                    self.last_mochi = msg
+                    tts_flag = self.tts_enabled
+                    v = self.voice
+                if tts_flag:
+                    threading.Thread(
+                        target=lambda: speak_text(msg, voice=v, display_text=msg),
+                        daemon=True,
+                    ).start()
+
+            for spec in reply.actions:
+                res = execute_action(spec, on_timer_done=_on_timer)
+                if res.kind == "sysinfo" or not res.ok:
+                    action_notes.append(res.message)
+
+        final_text = reply.text
+        final_spoken = reply.spoken_text
+        if action_notes:
+            note_str = " ".join(action_notes)
+            final_text = f"{final_text} {note_str}".strip() if final_text else note_str
+            final_spoken = f"{final_spoken}. {note_str}".strip() if final_spoken else note_str
 
         with self.lock:
             if reply.mood:
@@ -228,20 +264,20 @@ class VoiceController:
                     if self.voice_state == "speaking":
                         self.voice_state = "none"
                     if not self.last_mochi and not self.is_error:
-                        self.last_mochi = reply.text
+                        self.last_mochi = final_text
                     self.status_line = ""
 
             speak_text(
-                reply.spoken_text,
+                final_spoken,
                 voice=voice,
                 on_start=_on_start,
                 on_word=_on_word,
                 on_end=_on_end,
-                display_text=reply.text,
+                display_text=final_text,
                 cancel_event=cancel_ev,
             )
         elif not cancel_ev.is_set():
-            words = reply.text.split()
+            words = final_text.split()
             for idx in range(1, len(words) + 1):
                 if cancel_ev.is_set():
                     return
@@ -249,7 +285,7 @@ class VoiceController:
                     self.last_mochi = " ".join(words[:idx])
                 time.sleep(0.035)
             with self.lock:
-                self.last_mochi = reply.text
+                self.last_mochi = final_text
 
     def start_voice_turn(self) -> None:
         with self.lock:
@@ -580,6 +616,7 @@ def run_tui(
     speed_override: float | None = None,
     tts_enabled: bool = True,
     standalone: bool = False,
+    backend: str = "auto",
     start_talking: bool = False,
 ) -> int:
     """Launch the interactive terminal UI."""
@@ -603,7 +640,7 @@ def run_tui(
             speed_override=speed_override,
         )
         engine = MochiEngine(mood=mood, auto_cycle=auto_cycle)
-        llm = OpenCodeClient(model=model, lang=voice_preset.lang, standalone=standalone)
+        llm = OpenCodeClient(model=model, lang=voice_preset.lang, standalone=standalone, backend=backend)
         controller = VoiceController(
             engine=engine,
             llm=llm,

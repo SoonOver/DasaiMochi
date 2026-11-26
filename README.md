@@ -1,14 +1,15 @@
 # Dasai Mochi (Terminal Edition)
 
-**Dasai Mochi** (*digital car/desk companion*) versi terminal berbasis Python (`curses` + 64×32 virtual OLED *framebuffer*), lengkap dengan animasi ekspresi wajah interaktif, **input mikrofon (STT)**, **suara imut/anime (TTS)**, **subtitle streaming**, dan integrasi **model gratis OpenCode** (`opencode/beam-free`).
+**Dasai Mochi** (*digital car/desk companion*) versi terminal berbasis Python (`curses` + 64×32 virtual OLED *framebuffer*), lengkap dengan animasi ekspresi wajah interaktif, **input mikrofon (STT)**, **suara imut/anime (TTS)**, **subtitle streaming**, **kendali komputer (Linux & Windows 10/11)**, serta **chat AI gratis tanpa wajib download OpenCode**.
 
 ## Fitur Utama
 
 - **10 Ekspresi OLED Animatif** (`idle`, `happy`, `love`, `sleepy`, `cool`, `surprised`, `angry`, `vibe`, `turbo`, `glitch`) dengan kedipan alami, lirikan mata, dan reaksi *boop* (`Space`).
 - **Tampilan Minimalis**: Menu dan legenda tersembunyi secara default — tekan `h` kapan saja untuk membuka menu lengkap.
-- **Ngobrol via Mic & Teks**: Terintegrasi dengan `opencode` (`opencode/beam-free` default) dengan memori percakapan dan pergantian ekspresi otomatis.
+- **Tanpa Wajib Download OpenCode**: Jika `opencode` CLI tidak terpasang, Mochi otomatis memakai API AI gratis tanpa API key (`Pollinations` / `OpenCode Zen HTTP`), dan tetap memakai `opencode/beam-free` bila `opencode` tersedia.
+- **Kendali Komputer Lintas OS (Linux & Windows 10/11)**: Minta Mochi membuka aplikasi (`browser`, `calculator`, `notepad`, `vscode`, `files`), mencari di Google/YouTube, membuka folder, mengatur volume & media playback, mengambil screenshot, membaca CPU/RAM/baterai/jam, mengunci layar, menyalin clipboard, atau memasang timer.
 - **TTS Ringan & Cepat + Subtitle Streaming**:
-  - Default **`tiktok-id`** (`id_001` dengan *formant shift* chibi via `mpv`)
+  - Default **`tiktok-id`** (`id_001` dengan *formant shift* chibi via `mpv` atau Windows Media `winmm`)
   - Karakter anime **`zunda-jp`** / **`zunda-norm`** (VOICEVOX Zundamon), **`tiktok-anime`**, **`tiktok-jp`**, **`tiktok-en`**, **`gtts-chibi`**, serta opsi **`edge-chibi`** / **`edge-cute`**
   - Subtitle muncul mengalir (*streaming*) tepat di bawah layar Mochi.
 
@@ -21,7 +22,7 @@
 - **Windows 10 / Windows 11**:
   - Jalankan di **Windows Terminal** (atau PowerShell) agar karakter OLED & warna tampil optimal
   - Audio playback & mic capture sudah jalan langsung lewat Windows Media (`winmm`) & `sounddevice` (pasang `mpv` opsional via `winget install mpv.net` untuk efek suara *chibi* lebih cepat)
-- **OpenCode CLI** *(untuk fitur chat AI)*: [`opencode`](https://opencode.ai) terpasang di `PATH`
+- **OpenCode CLI** *(opsional)*: jika [`opencode`](https://opencode.ai) terpasang di `PATH`, Mochi memakainya otomatis; jika tidak, Mochi tetap jalan pakai backend HTTP gratis bawaan (`--backend pollinations`).
 
 ## Instalasi (Fresh Clone)
 
