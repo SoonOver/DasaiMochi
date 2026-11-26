@@ -380,11 +380,11 @@ def _prompt_text_input(stdscr: curses.window, max_len: int = 220) -> str | None:
             except curses.error:
                 continue
 
-            if ch in ("\n", "\r", curses.KEY_ENTER):
+            if ch in ("\n", "\r", 10, 13, curses.KEY_ENTER):
                 return "".join(buf).strip() or None
-            if ch == "\x1b":
+            if ch in ("\x1b", 27):
                 return None
-            if ch in ("\x7f", "\b", curses.KEY_BACKSPACE):
+            if ch in ("\x7f", "\b", 8, curses.KEY_BACKSPACE):
                 if buf:
                     buf.pop()
             elif isinstance(ch, str) and ch.isprintable() and len(buf) < max_len:

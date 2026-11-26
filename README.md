@@ -12,16 +12,20 @@
   - Karakter anime **`zunda-jp`** / **`zunda-norm`** (VOICEVOX Zundamon), **`tiktok-anime`**, **`tiktok-jp`**, **`tiktok-en`**, **`gtts-chibi`**, serta opsi **`edge-chibi`** / **`edge-cute`**
   - Subtitle muncul mengalir (*streaming*) tepat di bawah layar Mochi.
 
-## Prasyarat Sistem (Linux)
+## Prasyarat Sistem
 
-- Python **3.10+** (`3.11`–`3.14` diuji di CI)
-- **Audio playback**: `mpv` (direkomendasikan untuk streaming & efek pitch/formant *chibi*), atau `ffplay` / `pw-play` / `paplay` / `aplay`
-- **Mic capture** *(opsional, untuk input suara)*: `pw-record` (PipeWire), `parecord` (PulseAudio), `arecord` (ALSA), atau `ffmpeg`
+- **Python 3.10+** (`3.11`–`3.14` diuji di CI)
+- **Linux**:
+  - Audio playback: `mpv` (direkomendasikan untuk streaming & efek pitch/formant *chibi*), atau `ffplay` / `pw-play` / `paplay` / `aplay`
+  - Mic capture *(opsional)*: `pw-record` (PipeWire), `parecord` (PulseAudio), `arecord` (ALSA), atau `ffmpeg`
+- **Windows 10 / Windows 11**:
+  - Jalankan di **Windows Terminal** (atau PowerShell) agar karakter OLED & warna tampil optimal
+  - Audio playback & mic capture sudah jalan langsung lewat Windows Media (`winmm`) & `sounddevice` (pasang `mpv` opsional via `winget install mpv.net` untuk efek suara *chibi* lebih cepat)
 - **OpenCode CLI** *(untuk fitur chat AI)*: [`opencode`](https://opencode.ai) terpasang di `PATH`
 
 ## Instalasi (Fresh Clone)
 
-### Cara Tercepat (Otomatis)
+### Linux / macOS (Otomatis 1 Perintah)
 
 ```bash
 git clone https://github.com/SoonOver/DasaiMochi.git
@@ -30,15 +34,27 @@ cd DasaiMochi
 ./mochi.py
 ```
 
-### Menggunakan `pip` + `requirements.txt`
+### Windows 10 / Windows 11 (Otomatis)
+
+Klik dua kali **`install.bat`** atau jalankan lewat PowerShell / Windows Terminal:
+
+```powershell
+git clone https://github.com/SoonOver/DasaiMochi.git
+cd DasaiMochi
+.\install.bat
+python mochi.py
+```
+
+### Manual dengan `pip` + `requirements.txt` (Linux & Windows)
 
 ```bash
 git clone https://github.com/SoonOver/DasaiMochi.git
 cd DasaiMochi
-python3 -m venv .venv
-source .venv/bin/activate
+python -m venv .venv
+# Linux/macOS: source .venv/bin/activate
+# Windows    : .venv\Scripts\activate
 pip install -r requirements.txt
-python3 mochi.py
+python mochi.py
 ```
 
 ### Menggunakan `uv`

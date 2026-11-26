@@ -145,13 +145,16 @@ def parse_opencode_json_output(raw_stdout: str) -> tuple[str, str | None]:
 
 def discover_free_models(opencode_bin: str = "opencode") -> tuple[str, ...]:
     """List free OpenCode models dynamically if CLI responds quickly, else return defaults."""
-    if not shutil.which(opencode_bin):
+    resolved = shutil.which(opencode_bin)
+    if not resolved:
         return FREE_MODELS
     try:
         proc = subprocess.run(
-            [opencode_bin, "models", "opencode"],
+            [resolved, "models", "opencode"],
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=6,
             check=False,
         )
@@ -204,13 +207,14 @@ class OpenCodeClient:
         message = user_message.strip()
         if not message:
             raise ValueError("Pesan tidak boleh kosong.")
-        if not shutil.which(self.opencode_bin):
+        resolved_bin = shutil.which(self.opencode_bin)
+        if not resolved_bin:
             raise OpenCodeError(f"Binary '{self.opencode_bin}' tidak ditemukan di PATH.")
 
         prompt = message if self.session_id else f"{build_persona_prompt(self.lang)}\n\nUser: {message}"
 
         cmd = [
-            self.opencode_bin,
+            resolved_bin,
             "run",
             "--format",
             "json",
@@ -230,6 +234,8 @@ class OpenCodeClient:
                     cmd,
                     capture_output=True,
                     text=True,
+                    encoding="utf-8",
+                    errors="replace",
                     timeout=self.timeout,
                     check=False,
                 )
@@ -273,6 +279,8 @@ class OpenCodeClient:
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 text=True,
+                encoding="utf-8",
+                errors="replace",
             )
         except OSError as exc:
             raise OpenCodeError(f"Gagal menjalankan opencode: {exc}") from exc

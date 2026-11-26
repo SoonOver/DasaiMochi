@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 
 from .animations import MOOD_NAMES, MOODS, MochiEngine
@@ -197,7 +198,28 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _configure_windows_console() -> None:
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            try:
+                stream.reconfigure(encoding="utf-8", errors="replace")
+            except Exception:
+                pass
+    if os.name == "nt":
+        try:
+            import ctypes
+
+            kernel32 = ctypes.windll.kernel32
+            handle = kernel32.GetStdHandle(-11)  # STD_OUTPUT_HANDLE
+            mode = ctypes.c_uint()
+            if kernel32.GetConsoleMode(handle, ctypes.byref(mode)):
+                kernel32.SetConsoleMode(handle, mode.value | 0x0004)  # ENABLE_VIRTUAL_TERMINAL_PROCESSING
+        except Exception:
+            pass
+
+
 def main(argv: list[str] | None = None) -> int:
+    _configure_windows_console()
     parser = build_parser()
     args = parser.parse_args(argv)
 

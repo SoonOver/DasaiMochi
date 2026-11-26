@@ -69,6 +69,30 @@ def test_split_tts_chunks_and_mocked_non_edge_backends(monkeypatch):
     assert _fetch_voicevox_stream_url("こんにちは", 1) == "https://audio1.tts.quest/test.mp3s"
 
 
+def test_windows_audio_dispatch_mocked(monkeypatch, tmp_path):
+    import dasai_mochi.audio as audio_mod
+
+    called = []
+    monkeypatch.setattr(audio_mod.os, "name", "nt")
+    monkeypatch.setattr(audio_mod.shutil, "which", lambda _name: None)
+    monkeypatch.setattr(
+        audio_mod,
+        "_play_audio_winmm",
+        lambda path, **_kw: called.append(("play", path)),
+    )
+    mp3_file = tmp_path / "voice.mp3"
+    mp3_file.write_bytes(b"MP3")
+    audio_mod._play_audio_file(str(mp3_file), display_text="Halo")
+    assert called == [("play", str(mp3_file))]
+
+    monkeypatch.setattr(
+        audio_mod,
+        "_record_with_sounddevice",
+        lambda wav_path, **_kw: 1.5,
+    )
+    assert audio_mod.record_mic_to_wav(str(tmp_path / "mic.wav")) == 1.5
+
+
 def test_advance_subtitle_cursor_preserves_punctuation():
     txt = "Halo! Aku Mochi, robot mini."
     c1 = advance_subtitle_cursor(txt, 0, "Halo")

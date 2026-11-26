@@ -231,6 +231,122 @@ def write_wav_file(path: str, pcm_bytes: bytes, sample_rate: int = 16000) -> Non
         wf.writeframes(pcm_bytes)
 
 
+def _record_with_sounddevice(
+    wav_path: str,
+    stop_event: threading.Event | None = None,
+    on_level: Callable[[float], None] | None = None,
+    max_seconds: float = 15.0,
+    silence_seconds: float = 1.2,
+    min_speech_seconds: float = 0.3,
+) -> float:
+    """Cross-platform mic recording via `sounddevice` (used primarily on Windows 10)."""
+    import sounddevice as sd
+
+    sample_rate = 16000
+    block_frames = 800  # 50ms
+    pcm_chunks: list[bytes] = []
+    started_at = time.monotonic()
+    noise_samples: list[float] = []
+    speech_detected = False
+    speech_seconds = 0.0
+    silence_run = 0.0
+
+    try:
+        with sd.RawInputStream(
+            samplerate=sample_rate,
+            channels=1,
+            dtype="int16",
+            blocksize=block_frames,
+        ) as stream:
+            while True:
+                if stop_event is not None and stop_event.is_set():
+                    break
+                if time.monotonic() - started_at >= max_seconds:
+                    break
+                raw_buf, _overflowed = stream.read(block_frames)
+                data = bytes(raw_buf)
+                if not data:
+                    continue
+                pcm_chunks.append(data)
+
+                rms = pcm16_rms(data)
+                if on_level is not None:
+                    on_level(min(1.0, rms * 8.0))
+
+                if len(noise_samples) < 7:
+                    noise_samples.append(rms)
+                    continue
+
+                noise_floor = sum(noise_samples) / len(noise_samples)
+                threshold = max(0.012, noise_floor * 2.4)
+                chunk_dur = len(data) / (sample_rate * 2)
+
+                if rms >= threshold:
+                    speech_detected = True
+                    speech_seconds += chunk_dur
+                    silence_run = 0.0
+                elif speech_detected:
+                    silence_run += chunk_dur
+                    if speech_seconds >= min_speech_seconds and silence_run >= silence_seconds:
+                        break
+    finally:
+        if on_level is not None:
+            on_level(0.0)
+
+    pcm = b"".join(pcm_chunks)
+    if len(pcm) < 3200:
+        raise AudioError("Tidak ada data audio dari mikrofon.")
+    write_wav_file(wav_path, pcm, sample_rate=sample_rate)
+    return len(pcm) / (sample_rate * 2)
+
+
+def _winmm_mci(command: str) -> str:
+    """Execute a Windows MCI command via `winmm.dll`."""
+    import ctypes
+
+    buf = ctypes.create_unicode_buffer(256)
+    err = ctypes.windll.winmm.mciSendStringW(command, buf, 255, 0)
+    if err != 0:
+        err_buf = ctypes.create_unicode_buffer(256)
+        ctypes.windll.winmm.mciGetErrorStringW(err, err_buf, 255)
+        raise AudioError(err_buf.value or f"Windows MCI error {err}")
+    return buf.value
+
+
+def _record_with_winmm(
+    wav_path: str,
+    stop_event: threading.Event | None = None,
+    on_level: Callable[[float], None] | None = None,
+    max_seconds: float = 12.0,
+) -> float:
+    """Fallback Windows 10 mic capture using built-in `winmm.dll` MCI."""
+    alias = f"mochi_rec_{os.getpid()}"
+    started_at = time.monotonic()
+    _winmm_mci(f"open new Type waveaudio Alias {alias}")
+    try:
+        _winmm_mci(f"set {alias} time format ms bitspersample 16 channels 1 samplespersec 16000")
+        _winmm_mci(f"record {alias}")
+        while True:
+            if stop_event is not None and stop_event.is_set():
+                break
+            elapsed = time.monotonic() - started_at
+            if elapsed >= max_seconds:
+                break
+            if on_level is not None:
+                on_level(0.35 + 0.25 * math.sin(elapsed * 8.0))
+            time.sleep(0.08)
+        _winmm_mci(f"stop {alias}")
+        _winmm_mci(f'save {alias} "{wav_path}"')
+    finally:
+        if on_level is not None:
+            on_level(0.0)
+        try:
+            _winmm_mci(f"close {alias}")
+        except Exception:
+            pass
+    return max(0.2, time.monotonic() - started_at)
+
+
 def record_mic_to_wav(
     wav_path: str,
     stop_event: threading.Event | None = None,
@@ -240,6 +356,29 @@ def record_mic_to_wav(
     min_speech_seconds: float = 0.3,
 ) -> float:
     """Record audio from the default microphone until silence or `stop_event`."""
+    if os.name == "nt":
+        last_win_err = ""
+        try:
+            return _record_with_sounddevice(
+                wav_path,
+                stop_event=stop_event,
+                on_level=on_level,
+                max_seconds=max_seconds,
+                silence_seconds=silence_seconds,
+                min_speech_seconds=min_speech_seconds,
+            )
+        except Exception as exc:
+            last_win_err = f"sounddevice: {exc}"
+        try:
+            return _record_with_winmm(
+                wav_path,
+                stop_event=stop_event,
+                on_level=on_level,
+                max_seconds=max_seconds,
+            )
+        except Exception as exc:
+            raise AudioError(f"Gagal merekam mic di Windows ({last_win_err}; winmm: {exc}).") from exc
+
     recorders = detect_recorder_commands()
     if not recorders:
         raise AudioError("Tidak ada tool perekam mic (pw-record / parecord / arecord / ffmpeg).")
@@ -514,10 +653,57 @@ def _synthesize_gtts_to_mp3(text: str, lang_short: str, out_mp3: str) -> None:
         raise AudioError("gTTS menghasilkan file kosong.")
 
 
+def _download_voicevox_mp3(text: str, speaker_id: int, out_mp3: str) -> None:
+    """Fetch VOICEVOX audio via api.tts.quest and download the rendered MP3."""
+    resp = requests.get(
+        VOICEVOX_QUEST_URL,
+        params={"text": text[:200], "speaker": speaker_id},
+        timeout=10,
+    )
+    if resp.status_code != 200:
+        raise AudioError(f"VOICEVOX HTTP {resp.status_code}")
+    payload = resp.json()
+    if not payload.get("success"):
+        raise AudioError(payload.get("errorMessage") or "VOICEVOX rate limit / gagal.")
+
+    status_url = payload.get("audioStatusUrl")
+    dl_url = payload.get("mp3DownloadUrl")
+    if status_url:
+        deadline = time.monotonic() + 8.0
+        while time.monotonic() < deadline:
+            st = requests.get(str(status_url), timeout=6).json()
+            if st.get("isAudioReady"):
+                break
+            if st.get("isAudioError"):
+                raise AudioError("VOICEVOX gagal merender audio.")
+            time.sleep(0.25)
+
+    if not dl_url:
+        raise AudioError("VOICEVOX tidak mengembalikan mp3DownloadUrl.")
+    audio_resp = requests.get(str(dl_url), timeout=12)
+    if audio_resp.status_code != 200 or not audio_resp.content:
+        raise AudioError(f"Gagal mengunduh audio VOICEVOX (HTTP {audio_resp.status_code}).")
+    with open(out_mp3, "wb") as f:
+        f.write(audio_resp.content)
+
+
 def _synthesize_to_mp3(text: str, voice: VoicePreset, out_mp3: str) -> None:
     """Synthesize text to an MP3 file using the preset's backend with gTTS fallback."""
     err_notes: list[str] = []
-    if voice.backend == "tiktok":
+    if voice.backend == "voicevox":
+        try:
+            _download_voicevox_mp3(text, voice.speaker_id or 1, out_mp3)
+            return
+        except Exception as exc:
+            err_notes.append(f"voicevox: {exc}")
+            try:
+                mp3_bytes = _synthesize_tiktok_bytes(text, VOICE_BY_KEY["tiktok-anime"].voice_id)
+                with open(out_mp3, "wb") as f:
+                    f.write(mp3_bytes)
+                return
+            except Exception as tt_exc:
+                err_notes.append(f"tiktok-anime: {tt_exc}")
+    elif voice.backend == "tiktok":
         try:
             mp3_bytes = _synthesize_tiktok_bytes(text, voice.voice_id)
             with open(out_mp3, "wb") as f:
@@ -551,6 +737,49 @@ def _synthesize_to_mp3(text: str, voice: VoicePreset, out_mp3: str) -> None:
         raise AudioError(f"TTS gagal ({detail})") from gtts_exc
 
 
+def _play_audio_winmm(
+    audio_path: str,
+    display_text: str = "",
+    speed: float = 1.0,
+    on_start: Callable[[], None] | None = None,
+    on_word: Callable[[str], None] | None = None,
+    cancel_event: threading.Event | None = None,
+) -> None:
+    """Native Windows 10 MP3/WAV playback using built-in `winmm.dll` MCI."""
+    alias = f"mochi_tts_{os.getpid()}"
+    words = display_text.split() if display_text else []
+    word_idx = 0
+    _winmm_mci(f'open "{audio_path}" type mpegvideo alias {alias}')
+    try:
+        _winmm_mci(f"play {alias}")
+        if on_start is not None:
+            on_start()
+        started = time.monotonic()
+
+        while True:
+            if cancel_event is not None and cancel_event.is_set():
+                _winmm_mci(f"stop {alias}")
+                break
+            mode = _winmm_mci(f"status {alias} mode").strip().lower()
+            if mode in ("stopped", "not ready"):
+                break
+            if on_word is not None and words:
+                elapsed = time.monotonic() - started
+                target = min(len(words), max(1, int(elapsed * 4.2 * max(0.8, speed))))
+                if target > word_idx:
+                    word_idx = target
+                    on_word(" ".join(words[:word_idx]))
+            time.sleep(0.04)
+
+        if on_word is not None and display_text and not (cancel_event and cancel_event.is_set()):
+            on_word(display_text)
+    finally:
+        try:
+            _winmm_mci(f"close {alias}")
+        except Exception:
+            pass
+
+
 def _play_audio_file(
     mp3_path: str,
     speed: float = 1.0,
@@ -559,7 +788,7 @@ def _play_audio_file(
     on_word: Callable[[str], None] | None = None,
     cancel_event: threading.Event | None = None,
 ) -> None:
-    """Play an MP3 file using available Linux players with subtitle pacing."""
+    """Play an MP3 file using mpv/ffplay/Linux players or native Windows MCI."""
     wav_path: str | None = None
     cmd: list[str] | None = None
 
@@ -567,6 +796,16 @@ def _play_audio_file(
         cmd = _build_mpv_cmd(mp3_path, speed=speed, stream=False)
     elif shutil.which("ffplay"):
         cmd = ["ffplay", "-nodisp", "-autoexit", "-loglevel", "quiet", mp3_path]
+    elif os.name == "nt":
+        _play_audio_winmm(
+            mp3_path,
+            display_text=display_text,
+            speed=speed,
+            on_start=on_start,
+            on_word=on_word,
+            cancel_event=cancel_event,
+        )
+        return
     elif shutil.which("ffmpeg"):
         fd, wav_path = tempfile.mkstemp(prefix="mochi_tts_", suffix=".wav")
         os.close(fd)
